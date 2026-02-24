@@ -1,0 +1,16 @@
+[package]
+name = "symbaker"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+figment = { version = "0.10.19", features = ["env", "toml"] }
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
