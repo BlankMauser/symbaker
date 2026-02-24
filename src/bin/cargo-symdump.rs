@@ -150,47 +150,19 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
         install_args.push(OsString::from("--offline"));
     }
 
-    #[cfg(windows)]
-    {
-        // On Windows, self-updating while this binary is running can fail with
-        // access denied. Run install in a detached process after this exits.
-        let mut cmdline = String::from("Start-Sleep -Milliseconds 700; cargo");
-        for arg in &install_args {
-            let s = arg.to_string_lossy().replace('\'', "''");
-            cmdline.push(' ');
-            cmdline.push('\'');
-            cmdline.push_str(&s);
-            cmdline.push('\'');
-        }
-        Command::new("powershell")
-            .args(["-NoProfile", "-Command", &cmdline])
-            .spawn()
-            .map_err(|e| format!("failed to start background update: {e}"))?;
-        println!("update started in background from: {repo}");
-        if offline {
-            println!("mode: offline");
-        }
-        return Ok(());
-    }
-
-    #[cfg(not(windows))]
     let status = Command::new("cargo")
         .args(&install_args)
         .status()
         .map_err(|e| format!("failed to run cargo install: {e}"))?;
-    #[cfg(not(windows))]
     if !status.success() {
         return Err(format!("cargo install failed for repo: {repo}"));
     }
 
-    #[cfg(not(windows))]
     println!("updated cargo-symdump from: {repo}");
-    #[cfg(not(windows))]
     if offline {
         println!("mode: offline");
     }
-    #[cfg(not(windows))]
-    return Ok(());
+    Ok(())
 }
 
 fn main() -> ExitCode {
