@@ -15,7 +15,7 @@ fn usage() {
     eprintln!("  cargo symdump build --profile release --target-dir target");
     eprintln!("  cargo symdump skyline build --release");
     eprintln!("  cargo symdump dump path/to/file.nro");
-    eprintln!("  cargo symdump update [--repo <git-url>]");
+    eprintln!("  cargo symdump update [--repo <git-url>] [--offline]");
 }
 
 fn find_flag_value(args: &[OsString], flag: &str) -> Option<PathBuf> {
@@ -115,6 +115,7 @@ fn run_dump_only(path: PathBuf) -> Result<(), String> {
 
 fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
     let mut repo = DEFAULT_REPO.to_string();
+    let mut offline = false;
     let mut i = 0usize;
     while i < args.len() {
         let cur = args[i].to_string_lossy();
@@ -129,19 +130,67 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
             args.remove(i);
             continue;
         }
+        if cur == "--offline" {
+            offline = true;
+            args.remove(i);
+            continue;
+        }
         i += 1;
     }
 
+    let mut install_args = vec![
+        OsString::from("install"),
+        OsString::from("--git"),
+        OsString::from(repo.clone()),
+        OsString::from("--bin"),
+        OsString::from("cargo-symdump"),
+        OsString::from("--force"),
+    ];
+    if offline {
+        install_args.push(OsString::from("--offline"));
+    }
+
+    #[cfg(windows)]
+    {
+        // On Windows, self-updating while this binary is running can fail with
+        // access denied. Run install in a detached process after this exits.
+        let mut cmdline = String::from("Start-Sleep -Milliseconds 700; cargo");
+        for arg in &install_args {
+            let s = arg.to_string_lossy().replace('\'', "''");
+            cmdline.push(' ');
+            cmdline.push('\'');
+            cmdline.push_str(&s);
+            cmdline.push('\'');
+        }
+        Command::new("powershell")
+            .args(["-NoProfile", "-Command", &cmdline])
+            .spawn()
+            .map_err(|e| format!("failed to start background update: {e}"))?;
+        println!("update started in background from: {repo}");
+        if offline {
+            println!("mode: offline");
+        }
+        return Ok(());
+    }
+
+    #[cfg(not(windows))]
     let status = Command::new("cargo")
-        .args(["install", "--git", &repo, "--bin", "cargo-symdump", "--force"])
+        .args(&install_args)
         .status()
         .map_err(|e| format!("failed to run cargo install: {e}"))?;
+    #[cfg(not(windows))]
     if !status.success() {
         return Err(format!("cargo install failed for repo: {repo}"));
     }
 
+    #[cfg(not(windows))]
     println!("updated cargo-symdump from: {repo}");
-    Ok(())
+    #[cfg(not(windows))]
+    if offline {
+        println!("mode: offline");
+    }
+    #[cfg(not(windows))]
+    return Ok(());
 }
 
 fn main() -> ExitCode {
