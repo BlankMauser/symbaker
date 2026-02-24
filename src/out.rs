@@ -238,6 +238,66 @@ fn parse_nro_exports(path: &Path) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+fn alt_symbol_source_for_nro(path: &Path) -> Option<PathBuf> {
+    let parent = path.parent()?;
+    let stem = path.file_stem()?.to_string_lossy().to_string();
+    let mut candidates = Vec::<PathBuf>::new();
+
+    let explicit = [
+        format!("{stem}.nso"),
+        format!("{stem}.so"),
+        format!("{stem}.elf"),
+        format!("lib{stem}.nso"),
+        format!("lib{stem}.so"),
+        format!("lib{stem}.elf"),
+    ];
+    for name in explicit {
+        let p = parent.join(name);
+        if p.exists() {
+            candidates.push(p);
+        }
+    }
+
+    let scan_dirs = [parent.to_path_buf(), parent.join("deps")];
+    for dir in scan_dirs {
+        if !dir.exists() || !dir.is_dir() {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if !p.is_file() {
+                continue;
+            }
+            let ext = p.extension().and_then(|s| s.to_str()).unwrap_or_default();
+            if !matches!(ext, "so" | "nso" | "elf" | "dll" | "dylib") {
+                continue;
+            }
+            let fst = p.file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+            if fst.contains(&stem) || stem.contains(fst.trim_start_matches("lib")) {
+                candidates.push(p);
+            }
+        }
+    }
+
+    let mut newest: Option<(PathBuf, std::time::SystemTime)> = None;
+    for p in candidates {
+        let Ok(meta) = fs::metadata(&p) else {
+            continue;
+        };
+        let Ok(mtime) = meta.modified() else {
+            continue;
+        };
+        match &newest {
+            Some((_, t)) if *t >= mtime => {}
+            _ => newest = Some((p, mtime)),
+        }
+    }
+    newest.map(|(p, _)| p)
+}
+
 pub fn exported_symbols(path: &Path) -> Result<Vec<String>, String> {
     let mut symbols = Vec::<String>::new();
     if let Some(nm) = pick_nm() {
@@ -281,7 +341,25 @@ pub fn exported_symbols(path: &Path) -> Result<Vec<String>, String> {
 }
 
 pub fn write_exports_sidecar(path: &Path) -> Result<PathBuf, String> {
-    let symbols = exported_symbols(path)?;
+    let symbols = match exported_symbols(path) {
+        Ok(s) => s,
+        Err(original_err) => {
+            if path.extension().and_then(|s| s.to_str()) == Some("nro") {
+                if let Some(alt) = alt_symbol_source_for_nro(path) {
+                    exported_symbols(&alt).map_err(|e| {
+                        format!(
+                            "{original_err}; fallback '{}' also failed: {e}",
+                            alt.display()
+                        )
+                    })?
+                } else {
+                    return Err(original_err);
+                }
+            } else {
+                return Err(original_err);
+            }
+        }
+    };
     let out_path = path
         .parent()
         .ok_or_else(|| "invalid artifact path".to_string())?
