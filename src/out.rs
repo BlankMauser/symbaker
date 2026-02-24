@@ -139,6 +139,18 @@ fn parse_nm_symbols(text: &str) -> Vec<String> {
     symbols
 }
 
+fn run_nm(tool: &str, path: &Path, args: &[&str]) -> Result<Vec<String>, String> {
+    let output = Command::new(tool)
+        .args(args)
+        .arg(path)
+        .output()
+        .map_err(|e| format!("failed to run {tool}: {e}"))?;
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+    Ok(parse_nm_symbols(&String::from_utf8_lossy(&output.stdout)))
+}
+
 fn parse_objdump_exports(text: &str) -> Vec<String> {
     let mut symbols = Vec::<String>::new();
     for line in text.lines() {
@@ -160,13 +172,17 @@ fn parse_objdump_exports(text: &str) -> Vec<String> {
 pub fn exported_symbols(path: &Path) -> Result<Vec<String>, String> {
     let mut symbols = Vec::<String>::new();
     if let Some(nm) = pick_nm() {
-        let output = Command::new(nm)
-            .args(["-g", "--defined-only"])
-            .arg(path)
-            .output()
-            .map_err(|e| format!("failed to run nm: {e}"))?;
-        if output.status.success() {
-            symbols = parse_nm_symbols(&String::from_utf8_lossy(&output.stdout));
+        let tries: [&[&str]; 4] = [
+            &["-g", "--defined-only"],
+            &["-D", "--defined-only"],
+            &["-gD"],
+            &["-g"],
+        ];
+        for t in tries {
+            symbols = run_nm(&nm, path, t)?;
+            if !symbols.is_empty() {
+                break;
+            }
         }
     }
 
