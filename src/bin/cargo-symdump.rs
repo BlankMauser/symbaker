@@ -6,6 +6,8 @@ use std::process::{Command, ExitCode};
 #[path = "../out.rs"]
 mod out;
 
+const DEFAULT_REPO: &str = "https://github.com/BlankMauser/symbaker";
+
 fn usage() {
     eprintln!("cargo-symdump: build then dump exported symbols from newest .nro");
     eprintln!("usage:");
@@ -13,6 +15,7 @@ fn usage() {
     eprintln!("  cargo symdump build --profile release --target-dir target");
     eprintln!("  cargo symdump skyline build --release");
     eprintln!("  cargo symdump dump path/to/file.nro");
+    eprintln!("  cargo symdump update [--repo <git-url>]");
 }
 
 fn find_flag_value(args: &[OsString], flag: &str) -> Option<PathBuf> {
@@ -66,6 +69,16 @@ fn target_dir_from_args(args: &[OsString]) -> PathBuf {
 }
 
 fn run_build_then_dump(mut args: Vec<OsString>) -> Result<(), String> {
+    // When invoked as `cargo symdump ...`, some environments may still include
+    // a leading `symdump` token in argv. Drop it to avoid recursion.
+    while args
+        .first()
+        .map(|s| s.to_string_lossy() == "symdump")
+        .unwrap_or(false)
+    {
+        args.remove(0);
+    }
+
     if args.is_empty() || args[0].to_string_lossy().starts_with('-') {
         args.insert(0, OsString::from("build"));
     }
@@ -100,8 +113,46 @@ fn run_dump_only(path: PathBuf) -> Result<(), String> {
     Ok(())
 }
 
+fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
+    let mut repo = DEFAULT_REPO.to_string();
+    let mut i = 0usize;
+    while i < args.len() {
+        let cur = args[i].to_string_lossy();
+        if cur == "--repo" && i + 1 < args.len() {
+            repo = args[i + 1].to_string_lossy().to_string();
+            args.remove(i + 1);
+            args.remove(i);
+            continue;
+        }
+        if let Some(v) = cur.strip_prefix("--repo=") {
+            repo = v.to_string();
+            args.remove(i);
+            continue;
+        }
+        i += 1;
+    }
+
+    let status = Command::new("cargo")
+        .args(["install", "--git", &repo, "--bin", "cargo-symdump", "--force"])
+        .status()
+        .map_err(|e| format!("failed to run cargo install: {e}"))?;
+    if !status.success() {
+        return Err(format!("cargo install failed for repo: {repo}"));
+    }
+
+    println!("updated cargo-symdump from: {repo}");
+    Ok(())
+}
+
 fn main() -> ExitCode {
     let mut args: Vec<OsString> = env::args_os().skip(1).collect();
+    while args
+        .first()
+        .map(|s| s.to_string_lossy() == "symdump")
+        .unwrap_or(false)
+    {
+        args.remove(0);
+    }
     if args.is_empty() || args[0] == "-h" || args[0] == "--help" {
         usage();
         return ExitCode::SUCCESS;
@@ -113,6 +164,8 @@ fn main() -> ExitCode {
         } else {
             run_dump_only(PathBuf::from(args.remove(1)))
         }
+    } else if args[0] == "update" {
+        run_update(args.into_iter().skip(1).collect())
     } else {
         run_build_then_dump(args)
     };

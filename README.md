@@ -73,6 +73,12 @@ Use the subcommand instead:
 cargo symdump --release
 ```
 
+Update the tool later with:
+
+```bash
+cargo symdump update
+```
+
 `cargo-symdump` automatically sets `SYMBAKER_TOP_PACKAGE` for that build when it can resolve the top package via `cargo metadata`.
 
 This runs `cargo build --release`, finds the newest `.nro` in the target dir, and writes:
