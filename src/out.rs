@@ -169,6 +169,75 @@ fn parse_objdump_exports(text: &str) -> Vec<String> {
     symbols
 }
 
+fn read_u32_le(bytes: &[u8], off: usize) -> Option<u32> {
+    let end = off.checked_add(4)?;
+    let chunk = bytes.get(off..end)?;
+    Some(u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+}
+
+fn cstr_at(bytes: &[u8], off: usize, max_end: usize) -> Option<String> {
+    if off >= max_end || off >= bytes.len() {
+        return None;
+    }
+    let mut end = off;
+    while end < max_end && end < bytes.len() {
+        if bytes[end] == 0 {
+            break;
+        }
+        end += 1;
+    }
+    if end <= off {
+        return None;
+    }
+    std::str::from_utf8(&bytes[off..end]).ok().map(|s| s.to_string())
+}
+
+fn parse_nro_exports(path: &Path) -> Result<Vec<String>, String> {
+    let data = fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+    let header = 0x10usize;
+    let magic = data.get(header..header + 4).ok_or_else(|| "short file".to_string())?;
+    if magic != b"NRO0" {
+        return Ok(Vec::new());
+    }
+
+    let dynstr_off = read_u32_le(&data, header + 0x70).ok_or_else(|| "invalid dynstr off".to_string())? as usize;
+    let dynstr_size =
+        read_u32_le(&data, header + 0x74).ok_or_else(|| "invalid dynstr size".to_string())? as usize;
+    let dynsym_off = read_u32_le(&data, header + 0x78).ok_or_else(|| "invalid dynsym off".to_string())? as usize;
+
+    if dynstr_size == 0 || dynstr_off >= data.len() || dynsym_off >= data.len() {
+        return Ok(Vec::new());
+    }
+    let dynstr_end = dynstr_off.saturating_add(dynstr_size).min(data.len());
+    if dynstr_end <= dynstr_off || dynstr_off <= dynsym_off {
+        return Ok(Vec::new());
+    }
+
+    // NRO dynsym entries follow Elf64_Sym layout (24 bytes each).
+    let entry_size = 24usize;
+    let dynsym_end = dynstr_off;
+    let count = (dynsym_end - dynsym_off) / entry_size;
+    if count == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut out = Vec::<String>::new();
+    for i in 0..count {
+        let base = dynsym_off + i * entry_size;
+        let name_idx = read_u32_le(&data, base).unwrap_or(0) as usize;
+        if name_idx == 0 {
+            continue;
+        }
+        let name_off = dynstr_off.saturating_add(name_idx);
+        if let Some(name) = cstr_at(&data, name_off, dynstr_end) {
+            if !name.is_empty() && !out.iter().any(|s| s == &name) {
+                out.push(name);
+            }
+        }
+    }
+    Ok(out)
+}
+
 pub fn exported_symbols(path: &Path) -> Result<Vec<String>, String> {
     let mut symbols = Vec::<String>::new();
     if let Some(nm) = pick_nm() {
@@ -199,8 +268,14 @@ pub fn exported_symbols(path: &Path) -> Result<Vec<String>, String> {
         }
     }
 
+    if symbols.is_empty() && path.extension().and_then(|s| s.to_str()) == Some("nro") {
+        symbols = parse_nro_exports(path)?;
+    }
+
     if symbols.is_empty() {
-        return Err("could not extract exported symbols; ensure llvm-nm/nm works for this artifact".to_string());
+        return Err(
+            "could not extract exported symbols from artifact (nm/objdump/nro parser found nothing)".to_string(),
+        );
     }
     Ok(symbols)
 }
