@@ -1,7 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use serde_json::Value;
-use std::{process::Command, sync::OnceLock};
+use std::sync::OnceLock;
 use syn::{parse_macro_input, punctuated::Punctuated, Expr, ExprLit, ItemFn, ItemMod, Lit, Meta, Token};
 
 use figment::{
@@ -79,38 +78,7 @@ fn detect_top_level_package_name() -> Option<String> {
         }
     }
 
-    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
-    let output = Command::new(cargo)
-        .args(["metadata", "--format-version", "1", "--no-deps"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-
-    let parsed: Value = serde_json::from_slice(&output.stdout).ok()?;
-    let root_id = parsed
-        .get("resolve")
-        .and_then(|r| r.get("root"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
-        .or_else(|| {
-            parsed
-                .get("workspace_default_members")
-                .and_then(|v| v.as_array())
-                .and_then(|arr| arr.first())
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        })?;
-
-    parsed
-        .get("packages")
-        .and_then(|v| v.as_array())?
-        .iter()
-        .find(|p| p.get("id").and_then(|v| v.as_str()) == Some(root_id.as_str()))
-        .and_then(|p| p.get("name"))
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+    None
 }
 
 fn read_prefix_from_workspace_metadata() -> Option<String> {

@@ -1,0 +1,6 @@
+[workspace]
+members = ["host_app", "dep_lib"]
+resolver = "2"
+
+[workspace.metadata.symbaker]
+prefix = "hdr"

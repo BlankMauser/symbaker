@@ -1,0 +1,10 @@
+[package]
+name = "ssbusync"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+symbaker = { path = "../../../" }
+
+[package.metadata.symbaker]
+prefix = "ssbusync"

@@ -132,3 +132,42 @@ fn dependency_symbol_uses_host_package_prefix_and_writes_sidecar() {
         "sidecar missing host-prefixed dependency export"
     );
 }
+
+#[test]
+fn workspace_prefix_overrides_dependency_prefix_without_top_package_env() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let workspace = root.join("tests").join("workspace_host");
+    let target_dir = workspace.join("target");
+
+    let status = Command::new("cargo")
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(workspace.join("Cargo.toml"))
+        .arg("-p")
+        .arg("host_ws")
+        .arg("--target-dir")
+        .arg(&target_dir)
+        .env_remove("SYMBAKER_PREFIX")
+        .env_remove("SYMBAKER_CONFIG")
+        .env_remove("SYMBAKER_PRIORITY")
+        .env_remove("SYMBAKER_TOP_PACKAGE")
+        .status()
+        .expect("failed to build workspace host");
+    assert!(status.success(), "workspace host build failed");
+
+    let artifact_root = target_dir.join("debug");
+    let lib = newest_dynamic_lib(&artifact_root, "host_ws")
+        .unwrap_or_else(|| panic!("could not find host_ws artifact under {}", artifact_root.display()));
+
+    let exports = read_exports(&lib).unwrap_or_else(|| panic!("failed reading exports from {}", lib.display()));
+    assert!(
+        exports.contains("hdr__dep_exported"),
+        "expected workspace prefix on dependency export; artifact: {}",
+        lib.display()
+    );
+    assert!(
+        !exports.contains("ssbusync__dep_exported"),
+        "dependency prefix leaked into host export set; artifact: {}",
+        lib.display()
+    );
+}
