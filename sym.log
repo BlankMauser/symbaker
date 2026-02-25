@@ -1,0 +1,3 @@
+# symbaker sym.log
+# source=\\?\E:\WebProjects\symbaker\tests\fixture_app\target\debug\fixture_app_test.nro
+# format: address type bind size name

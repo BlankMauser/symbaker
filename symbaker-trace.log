@@ -1,0 +1,103 @@
+[symbaker] env CARGO_PKG_NAME=Some("local-latency-slider") CARGO_MANIFEST_DIR=Some("E:\\.cargo\\git\\checkouts\\local-latency-slider-d82dc3a82b5d7975\\b3a0d92") CARGO_PRIMARY_PACKAGE=None SYMBAKER_TOP_PACKAGE=None SYMBAKER_PREFIX=None SYMBAKER_CONFIG=None SYMBAKER_PRIORITY=None
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="on_game_speed_calc" resolved_prefix="local_latency_slider" export_name="local_latency_slider__on_game_speed_calc"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="scene_update" resolved_prefix="local_latency_slider" export_name="local_latency_slider__scene_update"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="set_online_latency" resolved_prefix="local_latency_slider" export_name="local_latency_slider__set_online_latency"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="on_network_scan" resolved_prefix="local_latency_slider" export_name="local_latency_slider__on_network_scan"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="on_network_created" resolved_prefix="local_latency_slider" export_name="local_latency_slider__on_network_created"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="on_network_connected" resolved_prefix="local_latency_slider" export_name="local_latency_slider__on_network_connected"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="on_network_disconnected" resolved_prefix="local_latency_slider" export_name="local_latency_slider__on_network_disconnected"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="on_network_destroyed" resolved_prefix="local_latency_slider" export_name="local_latency_slider__on_network_destroyed"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="online_melee_any_scene_create" resolved_prefix="local_latency_slider" export_name="local_latency_slider__online_melee_any_scene_create"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="bg_matchmaking_seq" resolved_prefix="local_latency_slider" export_name="local_latency_slider__bg_matchmaking_seq"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="main_menu" resolved_prefix="local_latency_slider" export_name="local_latency_slider__main_menu"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="store_local_menu_pane" resolved_prefix="local_latency_slider" export_name="local_latency_slider__store_local_menu_pane"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="update_local_menu" resolved_prefix="local_latency_slider" export_name="local_latency_slider__update_local_menu"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="css_player_pane_num_changed" resolved_prefix="local_latency_slider" export_name="local_latency_slider__css_player_pane_num_changed"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="on_match_start" resolved_prefix="local_latency_slider" export_name="local_latency_slider__on_match_start"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="on_match_end" resolved_prefix="local_latency_slider" export_name="local_latency_slider__on_match_end"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolve_prefix input attr_prefix=None config.prefix=None config.sep=None config.priority=None
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files
+[symbaker] resolved candidates env_prefix=None top_package=None workspace_prefix=None package_prefix=None crate="local-latency-slider" sep="__"
+[symbaker] selected source=crate raw="local-latency-slider" sanitized="local_latency_slider"
+[symbaker] macro=symbaker function="update_css" resolved_prefix="local_latency_slider" export_name="local_latency_slider__update_css"
+[symbaker] workspace metadata prefix not found while walking parent Cargo.toml files

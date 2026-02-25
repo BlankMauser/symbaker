@@ -1,9 +1,9 @@
 # symbaker
 
-`symbaker` proc-macro crate meant for easily rewriting symbols. Currently just for prefixes but may get more functionality later
+`symbaker` proc-macro crate for rewriting exported symbol names.
 
 - `#[symbaker]` on a function sets `#[export_name = "..."]`.
-- `#[symbaker_module]` on an inline module applies the same behavior to export-like functions in that module.
+- `#[symbaker_module]` on an inline module applies the same behavior to functions in that module.
 - Prefix resolution is configurable and defaults to a priority chain.
 
 Default priority:
@@ -28,16 +28,14 @@ pub extern "C" fn my_export() {}
 pub extern "C" fn my_export2() {}
 ```
 
-`symbaker_module` custom filters (simple):
+`symbaker_module` filters:
 
 ```rust
 use symbaker::symbaker_module;
 
-// 1) Prefix every function in the module (default behavior)
 #[symbaker_module]
 mod all_exports {}
 
-// 2) Make your own rules
 #[symbaker_module(
     include_regex = "^keep_,special$",
     exclude_glob = "*skip*",
@@ -47,26 +45,37 @@ mod all_exports {}
 mod custom_rules {}
 ```
 
-How rules work:
+## Recommended one-time setup
 
-- Default is all functions in the module.
-- `include_regex` / `include_glob` keeps only matching functions.
-- `exclude_regex` / `exclude_glob` removes matching functions.
-- `template` controls final symbol name.
-- `suffix` is available in template as `{suffix}`.
+Run from workspace/repo root:
 
-Template placeholders:
+```bash
+cargo symdump init --prefix hdr
+cargo symdump run skyline build
+```
 
-- `{prefix}` resolved prefix
-- `{sep}` separator (default `__`)
-- `{module}` module name
-- `{name}` function name
-- `{suffix}` optional suffix
+This creates:
 
-Tip:
+- `symbaker.toml` (shared Figment config)
+- `.symbaker/` (generated outputs)
+- `.cargo/config.toml` entries:
+  - `SYMBAKER_CONFIG=<abs path to symbaker.toml>`
+  - `SYMBAKER_REQUIRE_CONFIG=1`
+  - `SYMBAKER_ENFORCE_INHERIT=1`
+  - `SYMBAKER_INITIALIZED=1`
 
-- Multiple regex/glob patterns are comma-separated, for example:
-  - `include_glob = "init_*,main_*"`
+`cargo symdump init` does not overwrite existing `[env]` keys in `.cargo/config.toml`; it only adds missing symbaker keys.
+
+Verify outputs:
+
+- `.symbaker/sym.log`
+- `.symbaker/resolution.toml`
+- `.symbaker/trace.log` (when trace enabled)
+
+For team-wide deterministic behavior, commit:
+
+- `symbaker.toml`
+- `.cargo/config.toml`
 
 ## Config
 
@@ -74,69 +83,82 @@ Environment variables:
 
 - `SYMBAKER_PREFIX`
 - `SYMBAKER_SEP` (default: `__`)
-- `SYMBAKER_PRIORITY` (comma-separated keys from priority list above)
+- `SYMBAKER_PRIORITY` (comma-separated keys from priority list)
 - `SYMBAKER_CONFIG` (path to TOML config file)
 - `SYMBAKER_TOP_PACKAGE` (explicit top package override)
+- `SYMBAKER_REQUIRE_CONFIG` (`1` => compile error if `SYMBAKER_CONFIG` missing)
+- `SYMBAKER_ENFORCE_INHERIT` (`1` => dependency crates error if they fall back to local crate/package prefixes)
+- `SYMBAKER_INITIALIZED` (`1` marks setup complete; missing value emits warning)
+- `SYMBAKER_TRACE` (`1`/`true` enables resolver logs)
+- `SYMBAKER_TRACE_FILE` (optional trace file path)
+- `SYMBAKER_TRACE_HARD` (`1` => emit compile error with resolved source/prefix)
 
-Example TOML file:
+Example `symbaker.toml`:
 
 ```toml
 prefix = "plugin_name"
 sep = "__"
 priority = ["attr", "env_prefix", "config", "top_package", "workspace", "package", "crate"]
+
+[overrides]
+# per-crate explicit prefix override
+# ssbusync = "hdr"
 ```
 
-### Cargo.toml metadata inheritance examples
+## Troubleshooting and reconfiguration
 
-Top-level app forcing one shared prefix for everything:
+Symptom: dependency prefixes appear in final exports (for example `ssbusync__*` instead of `hdr__*`).
+
+1. Regenerate reports:
+
+```bash
+cargo symdump run skyline build
+```
+
+2. Open `.symbaker/resolution.toml` and find crates whose `selected_source` is `package`, `crate`, or `crate_fallback_after_priority`.
+3. Add explicit overrides in `symbaker.toml`:
 
 ```toml
-# app/Cargo.toml
-[package]
-name = "my_plugin"
-
-[package.metadata.symbaker]
-prefix = "my_plugin"
+[overrides]
+ssbusync = "hdr"
 ```
 
-Workspace-level shared prefix:
+4. Build again:
 
-```toml
-# workspace Cargo.toml
-[workspace.metadata.symbaker]
-prefix = "mods"
+```bash
+cargo symdump run skyline build
 ```
 
-Child dependency opting out and using its own prefix:
+Useful diagnostics:
 
-```toml
-# dependency crate Cargo.toml
-[package]
-name = "child_crate"
+- Trace log:
+  - `SYMBAKER_TRACE=1`
+  - `SYMBAKER_TRACE_FILE=<workspace>/.symbaker/trace.log`
+- Hard fail with resolved source/prefix:
+  - `SYMBAKER_TRACE_HARD=1`
 
-[package.metadata.symbaker]
-prefix = "child_crate"
-prefer_package_prefix = true
+Reset safely:
+
+```bash
+cargo symdump init --force
 ```
 
-Notes:
-
-- `prefer_package_prefix = true` makes that crate ignore inherited top-level prefix and keep its own.
-- Without that flag top-level prefix is used first by default.
+This rewrites `symbaker.toml` template and re-adds missing symbaker env keys.
 
 ## Cargo Symdump
 
-Building:
+Build + dump:
 
 ```bash
 cargo symdump --release
 ```
 
-`cargo-symdump` automatically sets `SYMBAKER_TOP_PACKAGE` for that build when it can resolve the top package via `cargo metadata`.
-
-This runs `cargo build --release`, finds the newest `.nro` in the target dir, and writes:
+This runs cargo build, finds the newest `.nro`, and writes:
 
 - `<artifact>.nro.exports.txt`
+- `.symbaker/sym.log` (NRO format: `address type bind size name`)
+- `.symbaker/resolution.toml` (crate resolution + symbols + overrides template)
+- `.symbaker/trace.log` (when tracing enabled)
 
 Dump-only mode:
 
@@ -144,4 +166,10 @@ Dump-only mode:
 cargo symdump dump path/to/file.nro
 ```
 
-- Text file is emitted in the same folder (same base filename + `.exports.txt`).
+Wrap arbitrary cargo subcommands with symbaker env injection:
+
+```bash
+cargo symdump run skyline build
+```
+
+`cargo symdump run` sets `SYMBAKER_TOP_PACKAGE` (if missing) and `SYMBAKER_CONFIG` (if `symbaker.toml` is found in current dir or parents), then refreshes `.symbaker/resolution.toml`.

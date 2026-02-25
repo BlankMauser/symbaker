@@ -192,7 +192,53 @@ fn cstr_at(bytes: &[u8], off: usize, max_end: usize) -> Option<String> {
     std::str::from_utf8(&bytes[off..end]).ok().map(|s| s.to_string())
 }
 
-fn parse_nro_exports(path: &Path) -> Result<Vec<String>, String> {
+#[derive(Clone, Debug)]
+struct NroSymbol {
+    name: String,
+    value: u64,
+    st_type: u8,
+    st_bind: u8,
+    size: u64,
+    shndx: u16,
+}
+
+fn type_name(st_type: u8) -> &'static str {
+    match st_type {
+        0 => "NOTYPE",
+        1 => "OBJECT",
+        2 => "FUNC",
+        3 => "SECTION",
+        4 => "FILE",
+        5 => "COMMON",
+        6 => "TLS",
+        _ => "UNKNOWN",
+    }
+}
+
+fn bind_name(st_bind: u8) -> &'static str {
+    match st_bind {
+        0 => "LOCAL",
+        1 => "GLOBAL",
+        2 => "WEAK",
+        _ => "UNKNOWN",
+    }
+}
+
+fn read_u64_le(bytes: &[u8], off: usize) -> Option<u64> {
+    let end = off.checked_add(8)?;
+    let chunk = bytes.get(off..end)?;
+    Some(u64::from_le_bytes([
+        chunk[0], chunk[1], chunk[2], chunk[3], chunk[4], chunk[5], chunk[6], chunk[7],
+    ]))
+}
+
+fn read_u16_le(bytes: &[u8], off: usize) -> Option<u16> {
+    let end = off.checked_add(2)?;
+    let chunk = bytes.get(off..end)?;
+    Some(u16::from_le_bytes([chunk[0], chunk[1]]))
+}
+
+fn parse_nro_symbols(path: &Path) -> Result<Vec<NroSymbol>, String> {
     let data = fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let header = 0x10usize;
     let magic = data.get(header..header + 4).ok_or_else(|| "short file".to_string())?;
@@ -213,7 +259,6 @@ fn parse_nro_exports(path: &Path) -> Result<Vec<String>, String> {
         return Ok(Vec::new());
     }
 
-    // NRO dynsym entries follow Elf64_Sym layout (24 bytes each)
     let entry_size = 24usize;
     let dynsym_end = dynstr_off;
     let count = (dynsym_end - dynsym_off) / entry_size;
@@ -221,21 +266,53 @@ fn parse_nro_exports(path: &Path) -> Result<Vec<String>, String> {
         return Ok(Vec::new());
     }
 
-    let mut out = Vec::<String>::new();
+    let mut out = Vec::<NroSymbol>::new();
     for i in 0..count {
         let base = dynsym_off + i * entry_size;
         let name_idx = read_u32_le(&data, base).unwrap_or(0) as usize;
         if name_idx == 0 {
             continue;
         }
+        let st_info = data.get(base + 4).copied().unwrap_or(0);
+        let st_shndx = read_u16_le(&data, base + 6).unwrap_or(0);
+        let st_value = read_u64_le(&data, base + 8).unwrap_or(0);
+        let st_size = read_u64_le(&data, base + 16).unwrap_or(0);
+        if st_shndx == 0 {
+            continue;
+        }
         let name_off = dynstr_off.saturating_add(name_idx);
         if let Some(name) = cstr_at(&data, name_off, dynstr_end) {
-            if !name.is_empty() && !out.iter().any(|s| s == &name) {
-                out.push(name);
+            if !name.is_empty() {
+                out.push(NroSymbol {
+                    name,
+                    value: st_value,
+                    st_type: st_info & 0x0f,
+                    st_bind: st_info >> 4,
+                    size: st_size,
+                    shndx: st_shndx,
+                });
             }
         }
     }
+
+    out.sort_by(|a, b| {
+        a.value
+            .cmp(&b.value)
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| a.shndx.cmp(&b.shndx))
+    });
     Ok(out)
+}
+
+fn parse_nro_exports(path: &Path) -> Result<Vec<String>, String> {
+    let rows = parse_nro_symbols(path)?;
+    let mut names = Vec::<String>::new();
+    for row in rows {
+        if !names.iter().any(|n| n == &row.name) {
+            names.push(row.name);
+        }
+    }
+    Ok(names)
 }
 
 fn alt_symbol_source_for_nro(path: &Path) -> Option<PathBuf> {
@@ -300,7 +377,11 @@ fn alt_symbol_source_for_nro(path: &Path) -> Option<PathBuf> {
 
 pub fn exported_symbols(path: &Path) -> Result<Vec<String>, String> {
     let mut symbols = Vec::<String>::new();
-    if let Some(nm) = pick_nm() {
+    if path.extension().and_then(|s| s.to_str()) == Some("nro") {
+        symbols = parse_nro_exports(path)?;
+    }
+    if symbols.is_empty() {
+        if let Some(nm) = pick_nm() {
         let tries: [&[&str]; 4] = [
             &["-g", "--defined-only"],
             &["-D", "--defined-only"],
@@ -313,6 +394,7 @@ pub fn exported_symbols(path: &Path) -> Result<Vec<String>, String> {
                 break;
             }
         }
+    }
     }
 
     if symbols.is_empty() {
@@ -376,4 +458,34 @@ pub fn write_exports_sidecar(path: &Path) -> Result<PathBuf, String> {
     };
     fs::write(&out_path, body).map_err(|e| format!("write {}: {e}", out_path.display()))?;
     Ok(out_path)
+}
+
+pub fn write_symbol_log(path: &Path, out_path: &Path) -> Result<PathBuf, String> {
+    let mut body = String::new();
+    body.push_str("# symbaker sym.log\n");
+    body.push_str(&format!("# source={}\n", path.display()));
+    if path.extension().and_then(|s| s.to_str()) == Some("nro") {
+        let rows = parse_nro_symbols(path)?;
+        body.push_str("# format: address type bind size name\n");
+        for row in rows {
+            body.push_str(&format!(
+                "0x{0:016X} {1} {2} 0x{3:X} {4}\n",
+                row.value,
+                type_name(row.st_type),
+                bind_name(row.st_bind),
+                row.size,
+                row.name
+            ));
+        }
+    } else {
+        let symbols = exported_symbols(path)?;
+        body.push_str("# format: name\n");
+        for sym in symbols {
+            body.push_str(&sym);
+            body.push('\n');
+        }
+    }
+
+    fs::write(out_path, body).map_err(|e| format!("write {}: {e}", out_path.display()))?;
+    Ok(out_path.to_path_buf())
 }
