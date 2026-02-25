@@ -71,6 +71,16 @@ fn trace_bootstrap() {
     ));
 }
 
+fn trace_hard_fail() -> bool {
+    matches!(std::env::var("SYMBAKER_TRACE_HARD").as_deref(), Ok("1"))
+}
+
+fn trace_compile_error(msg: String) -> TokenStream {
+    syn::Error::new(proc_macro2::Span::call_site(), msg)
+        .to_compile_error()
+        .into()
+}
+
 fn load_config() -> Config {
     // Highest-level “shared” config file path
     let cfg_path = std::env::var("SYMBAKER_CONFIG").ok();
@@ -320,6 +330,19 @@ pub fn symbaker(attr: TokenStream, item: TokenStream) -> TokenStream {
         "macro=symbaker function={:?} resolved_prefix={:?} export_name={:?}",
         rust_name, prefix, export
     ));
+    if trace_hard_fail() {
+        return trace_compile_error(format!(
+            "symbaker trace: macro=symbaker crate={:?} function={:?} prefix={:?} export={:?} top_package={:?} workspace={:?} package={:?} env_prefix={:?}",
+            std::env::var("CARGO_PKG_NAME").ok(),
+            rust_name,
+            prefix,
+            export,
+            top_level_package_name(),
+            read_prefix_from_workspace_metadata(),
+            read_prefix_from_package_metadata(),
+            std::env::var("SYMBAKER_PREFIX").ok(),
+        ));
+    }
     push_export_name(&mut f, export);
 
     TokenStream::from(quote!(#f))
@@ -358,6 +381,20 @@ pub fn symbaker_module(attr: TokenStream, item: TokenStream) -> TokenStream {
                 "macro=symbaker_module module={:?} function={:?} resolved_prefix={:?} export_name={:?}",
                 module_name, rust_name, prefix, export
             ));
+            if trace_hard_fail() {
+                return trace_compile_error(format!(
+                    "symbaker trace: macro=symbaker_module crate={:?} module={:?} function={:?} prefix={:?} export={:?} top_package={:?} workspace={:?} package={:?} env_prefix={:?}",
+                    std::env::var("CARGO_PKG_NAME").ok(),
+                    module_name,
+                    rust_name,
+                    prefix,
+                    export,
+                    top_level_package_name(),
+                    read_prefix_from_workspace_metadata(),
+                    read_prefix_from_package_metadata(),
+                    std::env::var("SYMBAKER_PREFIX").ok(),
+                ));
+            }
             push_export_name(f, export);
         }
     }
