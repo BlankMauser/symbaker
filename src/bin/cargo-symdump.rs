@@ -616,6 +616,40 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
         install_args.push(OsString::from("--offline"));
     }
 
+    if cfg!(windows) {
+        let repo_ps = repo.replace('\'', "''");
+        let mut script = format!(
+            "$ErrorActionPreference='Stop'; Start-Sleep -Milliseconds 1200; cargo install --git '{}' --bin cargo-symdump --force",
+            repo_ps
+        );
+        if offline {
+            script.push_str(" --offline");
+        }
+        let status = Command::new("cmd")
+            .args([
+                "/C",
+                "start",
+                "",
+                "powershell",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &script,
+            ])
+            .status()
+            .map_err(|e| format!("failed to schedule Windows self-update: {e}"))?;
+        if !status.success() {
+            return Err("failed to schedule Windows self-update command".to_string());
+        }
+        println!("scheduled cargo-symdump update from: {repo}");
+        println!("close this command and rerun after a moment to use the updated binary");
+        if offline {
+            println!("mode: offline");
+        }
+        return Ok(());
+    }
+
     let status = Command::new("cargo")
         .args(&install_args)
         .status()
