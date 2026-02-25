@@ -1,0 +1,9 @@
+[package]
+name = "symbaker-build"
+version = "0.1.0"
+edition = "2021"
+description = "Build-time guard helpers for symbaker initialization"
+license = "MIT OR Apache-2.0"
+
+[lib]
+path = "src/lib.rs"

@@ -3,6 +3,17 @@ name = "symbaker"
 version = "0.1.0"
 edition = "2021"
 
+[workspace]
+members = ["symbaker-build"]
+exclude = [
+    "tests/dep_lib",
+    "tests/fixture_app",
+    "tests/host_app",
+    "tests/rules_app",
+    "tests/workspace_host/dep_lib",
+    "tests/workspace_host/host_app",
+]
+
 [lib]
 proc-macro = true
 

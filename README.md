@@ -77,6 +77,23 @@ For team-wide deterministic behavior, commit:
 - `symbaker.toml`
 - `.cargo/config.toml`
 
+Optional hard guard in downstream crates (`build.rs`):
+
+```toml
+# Cargo.toml
+[build-dependencies]
+symbaker-build = { git = "https://github.com/BlankMauser/symbaker", package = "symbaker-build" }
+```
+
+```rust
+// build.rs
+fn main() {
+    symbaker_build::require_initialized();
+}
+```
+
+This fails early with a setup message if the user has not run `cargo symdump init`.
+
 ## Config
 
 Environment variables:
