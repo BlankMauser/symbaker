@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use std::sync::OnceLock;
+use std::{fs::OpenOptions, io::Write, sync::OnceLock};
 use syn::{parse_macro_input, punctuated::Punctuated, Expr, ExprLit, ItemFn, ItemMod, Lit, Meta, Token};
 
 use figment::{
@@ -24,6 +24,51 @@ fn sanitize(s: &str) -> String {
     if out.is_empty() { out.push('_'); }
     if out.chars().next().unwrap().is_ascii_digit() { out.insert(0, '_'); }
     out
+}
+
+fn trace_enabled() -> bool {
+    match std::env::var("SYMBAKER_TRACE") {
+        Ok(v) => {
+            let n = v.trim().to_ascii_lowercase();
+            matches!(n.as_str(), "1" | "true" | "yes" | "on")
+        }
+        Err(_) => false,
+    }
+}
+
+fn trace_emit(line: impl AsRef<str>) {
+    if !trace_enabled() {
+        return;
+    }
+    let msg = format!("[symbaker] {}", line.as_ref());
+    eprintln!("{msg}");
+
+    let path = match std::env::var("SYMBAKER_TRACE_FILE") {
+        Ok(v) if !v.trim().is_empty() => v,
+        _ => return,
+    };
+
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{msg}");
+    }
+}
+
+fn trace_bootstrap() {
+    static DID_TRACE: OnceLock<()> = OnceLock::new();
+    if DID_TRACE.get().is_some() || !trace_enabled() {
+        return;
+    }
+    let _ = DID_TRACE.set(());
+    trace_emit(format!(
+        "env CARGO_PKG_NAME={:?} CARGO_MANIFEST_DIR={:?} CARGO_PRIMARY_PACKAGE={:?} SYMBAKER_TOP_PACKAGE={:?} SYMBAKER_PREFIX={:?} SYMBAKER_CONFIG={:?} SYMBAKER_PRIORITY={:?}",
+        std::env::var("CARGO_PKG_NAME").ok(),
+        std::env::var("CARGO_MANIFEST_DIR").ok(),
+        std::env::var("CARGO_PRIMARY_PACKAGE").ok(),
+        std::env::var("SYMBAKER_TOP_PACKAGE").ok(),
+        std::env::var("SYMBAKER_PREFIX").ok(),
+        std::env::var("SYMBAKER_CONFIG").ok(),
+        std::env::var("SYMBAKER_PRIORITY").ok(),
+    ));
 }
 
 fn load_config() -> Config {
@@ -89,18 +134,23 @@ fn read_prefix_from_workspace_metadata() -> Option<String> {
         let cargo = dir.join("Cargo.toml");
         if cargo.exists() {
             let text = std::fs::read_to_string(&cargo).ok()?;
-            if text.contains("[workspace]") && text.contains("[workspace.metadata.symbaker]") {
-                let v: toml::Value = toml::from_str(&text).ok()?;
-                return v.get("workspace")
-                    .and_then(|w| w.get("metadata"))
-                    .and_then(|m| m.get("symbaker"))
-                    .and_then(|s| s.get("prefix"))
-                    .and_then(|p| p.as_str())
-                    .map(|s| s.to_string());
+            let v: toml::Value = toml::from_str(&text).ok()?;
+            if let Some(prefix) = v.get("workspace")
+                .and_then(|w| w.get("metadata"))
+                .and_then(|m| m.get("symbaker"))
+                .and_then(|s| s.get("prefix"))
+                .and_then(|p| p.as_str()) {
+                trace_emit(format!(
+                    "workspace metadata prefix found in {}: {:?}",
+                    cargo.display(),
+                    prefix
+                ));
+                return Some(prefix.to_string());
             }
         }
         if !dir.pop() { break; }
     }
+    trace_emit("workspace metadata prefix not found while walking parent Cargo.toml files");
     None
 }
 
@@ -140,42 +190,95 @@ fn read_package_prefers_own_prefix() -> bool {
 }
 
 fn resolve_prefix(attr_prefix: Option<String>) -> (String, String) {
+    trace_bootstrap();
+
     let cfg = load_config();
+    trace_emit(format!(
+        "resolve_prefix input attr_prefix={:?} config.prefix={:?} config.sep={:?} config.priority={:?}",
+        attr_prefix, cfg.prefix, cfg.sep, cfg.priority
+    ));
 
     let sep = cfg.sep.clone().unwrap_or_else(|| "__".into());
     let prio = cfg.priority.clone().unwrap_or_else(default_priority);
+    let env_prefix = std::env::var("SYMBAKER_PREFIX").ok();
+    let top_package = top_level_package_name();
+    let workspace_prefix = read_prefix_from_workspace_metadata();
+    let crate_name = std::env::var("CARGO_PKG_NAME").unwrap_or_else(|_| "crate".into());
     let package_prefix = read_prefix_from_package_metadata();
+
+    trace_emit(format!(
+        "resolved candidates env_prefix={:?} top_package={:?} workspace_prefix={:?} package_prefix={:?} crate={:?} sep={:?}",
+        env_prefix, top_package, workspace_prefix, package_prefix, crate_name, sep
+    ));
 
     // Per-crate opt-out of inherited top-level prefix.
     // If set, package prefix wins (or crate name fallback if no explicit prefix).
     if read_package_prefers_own_prefix() {
         if let Some(p) = &package_prefix {
-            return (sanitize(p), sep);
+            let chosen = sanitize(p);
+            trace_emit(format!(
+                "selected source=prefer_package_prefix(package) raw={:?} sanitized={:?}",
+                p, chosen
+            ));
+            return (chosen, sep);
         }
-        let p = std::env::var("CARGO_PKG_NAME").unwrap_or_else(|_| "crate".into());
-        return (sanitize(&p), sep);
+        let chosen = sanitize(&crate_name);
+        trace_emit(format!(
+            "selected source=prefer_package_prefix(crate_fallback) raw={:?} sanitized={:?}",
+            crate_name, chosen
+        ));
+        return (chosen, sep);
     }
 
     // Note: “config” here means the parsed file via SYMBAKER_CONFIG;
     // env overrides come via SYMBAKER_PREFIX.
     for key in prio {
         match key.as_str() {
-            "attr" => if let Some(p) = &attr_prefix { return (sanitize(p), sep); }
-            "env_prefix" => if let Ok(p) = std::env::var("SYMBAKER_PREFIX") { return (sanitize(&p), sep); }
-            "config" => if let Some(p) = &cfg.prefix { return (sanitize(p), sep); }
-            "top_package" => if let Some(p) = top_level_package_name() { return (sanitize(&p), sep); }
-            "workspace" => if let Some(p) = read_prefix_from_workspace_metadata() { return (sanitize(&p), sep); }
-            "package" => if let Some(p) = &package_prefix { return (sanitize(p), sep); }
-            "crate" => {
-                let p = std::env::var("CARGO_PKG_NAME").unwrap_or_else(|_| "crate".into());
-                return (sanitize(&p), sep);
+            "attr" => if let Some(p) = &attr_prefix {
+                let chosen = sanitize(p);
+                trace_emit(format!("selected source=attr raw={:?} sanitized={:?}", p, chosen));
+                return (chosen, sep);
             }
-            _ => {}
+            "env_prefix" => if let Some(p) = &env_prefix {
+                let chosen = sanitize(p);
+                trace_emit(format!("selected source=env_prefix raw={:?} sanitized={:?}", p, chosen));
+                return (chosen, sep);
+            }
+            "config" => if let Some(p) = &cfg.prefix {
+                let chosen = sanitize(p);
+                trace_emit(format!("selected source=config raw={:?} sanitized={:?}", p, chosen));
+                return (chosen, sep);
+            }
+            "top_package" => if let Some(p) = &top_package {
+                let chosen = sanitize(p);
+                trace_emit(format!("selected source=top_package raw={:?} sanitized={:?}", p, chosen));
+                return (chosen, sep);
+            }
+            "workspace" => if let Some(p) = &workspace_prefix {
+                let chosen = sanitize(p);
+                trace_emit(format!("selected source=workspace raw={:?} sanitized={:?}", p, chosen));
+                return (chosen, sep);
+            }
+            "package" => if let Some(p) = &package_prefix {
+                let chosen = sanitize(p);
+                trace_emit(format!("selected source=package raw={:?} sanitized={:?}", p, chosen));
+                return (chosen, sep);
+            }
+            "crate" => {
+                let chosen = sanitize(&crate_name);
+                trace_emit(format!("selected source=crate raw={:?} sanitized={:?}", crate_name, chosen));
+                return (chosen, sep);
+            }
+            _ => trace_emit(format!("priority key {:?} is unknown and ignored", key)),
         }
     }
 
-    let p = std::env::var("CARGO_PKG_NAME").unwrap_or_else(|_| "crate".into());
-    (sanitize(&p), sep)
+    let chosen = sanitize(&crate_name);
+    trace_emit(format!(
+        "selected source=crate_fallback_after_priority raw={:?} sanitized={:?}",
+        crate_name, chosen
+    ));
+    (chosen, sep)
 }
 
 fn parse_attr_prefix(args: &Punctuated<Meta, Token![,]>) -> Option<String> {
@@ -213,6 +316,10 @@ pub fn symbaker(attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let rust_name = f.sig.ident.to_string();
     let export = format!("{prefix}{sep}{rust_name}");
+    trace_emit(format!(
+        "macro=symbaker function={:?} resolved_prefix={:?} export_name={:?}",
+        rust_name, prefix, export
+    ));
     push_export_name(&mut f, export);
 
     TokenStream::from(quote!(#f))
@@ -247,6 +354,10 @@ pub fn symbaker_module(attr: TokenStream, item: TokenStream) -> TokenStream {
             if !f.sig.generics.params.is_empty() { continue; }
 
             let export = module_rules.render_export_name(&prefix, &sep, &module_name, &rust_name);
+            trace_emit(format!(
+                "macro=symbaker_module module={:?} function={:?} resolved_prefix={:?} export_name={:?}",
+                module_name, rust_name, prefix, export
+            ));
             push_export_name(f, export);
         }
     }
