@@ -10,6 +10,8 @@ proc-macro = true
 figment = { version = "0.10.19", features = ["env", "toml"] }
 proc-macro2 = "1"
 quote = "1"
+regex = "1"
+globset = "0.4"
 syn = { version = "2", features = ["full"] }
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }

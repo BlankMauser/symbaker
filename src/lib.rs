@@ -10,6 +10,8 @@ use figment::{
 };
 use serde::Deserialize;
 
+mod filter;
+
 #[derive(Debug, Deserialize, Default)]
 struct Config {
     prefix: Option<String>,
@@ -37,7 +39,7 @@ fn load_config() -> Config {
     }
 
     // Optional env overrides:
-    // SYMBAKER_PREFIX, SYMBAKER_SEP, SYMBAKER_PRIORITY (comma-separated works well)
+    // SYMBAKER_PREFIX, SYMBAKER_SEP, SYMBAKER_PRIORITY
     fig = fig.merge(Env::prefixed("SYMBAKER_"));
 
     fig.extract::<Config>().unwrap_or_default()
@@ -221,7 +223,12 @@ pub fn symbaker_module(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut m = parse_macro_input!(item as ItemMod);
 
     let attr_prefix = parse_attr_prefix(&args);
+    let module_rules = match filter::parse_module_rules(&args) {
+        Ok(f) => f,
+        Err(e) => return e.to_compile_error().into(),
+    };
     let (prefix, sep) = resolve_prefix(attr_prefix);
+    let module_name = m.ident.to_string();
 
     let items = match &mut m.content {
         Some((_, items)) => items,
@@ -232,21 +239,13 @@ pub fn symbaker_module(attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    // Default filter: prefix only functions that look export-y.
     for it in items.iter_mut() {
         if let syn::Item::Fn(f) = it {
-            let is_hook = f.attrs.iter().any(|a| {
-                let p = a.path();
-                p.is_ident("hook") || p.segments.last().map(|s| s.ident == "hook").unwrap_or(false)
-            });
-            let is_exporty = is_hook
-                || f.attrs.iter().any(|a| a.path().is_ident("no_mangle") || a.path().is_ident("export_name"));
-
-            if !is_exporty { continue; }
+            let rust_name = f.sig.ident.to_string();
+            if !module_rules.should_prefix(&module_name, &rust_name) { continue; }
             if !f.sig.generics.params.is_empty() { continue; }
 
-            let rust_name = f.sig.ident.to_string();
-            let export = format!("{prefix}{sep}{rust_name}");
+            let export = module_rules.render_export_name(&prefix, &sep, &module_name, &rust_name);
             push_export_name(f, export);
         }
     }

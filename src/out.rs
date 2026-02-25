@@ -213,7 +213,7 @@ fn parse_nro_exports(path: &Path) -> Result<Vec<String>, String> {
         return Ok(Vec::new());
     }
 
-    // NRO dynsym entries follow Elf64_Sym layout (24 bytes each).
+    // NRO dynsym entries follow Elf64_Sym layout (24 bytes each)
     let entry_size = 24usize;
     let dynsym_end = dynstr_off;
     let count = (dynsym_end - dynsym_off) / entry_size;

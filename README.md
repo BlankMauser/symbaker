@@ -1,10 +1,6 @@
 # symbaker
 
-`symbaker` is a proc-macro crate that rewrites exported symbol names with a prefix.
-
-It is intended for Switch/homebrew-style workflows where symbol namespace collisions matter.
-
-## What it does
+`symbaker` proc-macro crate meant for easily rewriting symbols. Currently just for prefixes but may get more functionality later
 
 - `#[symbaker]` on a function sets `#[export_name = "..."]`.
 - `#[symbaker_module]` on an inline module applies the same behavior to export-like functions in that module.
@@ -20,13 +16,6 @@ Default priority:
 6. `package` (`[package.metadata.symbaker]`)
 7. `crate` (`CARGO_PKG_NAME`)
 
-## Install in a user crate
-
-```toml
-[dependencies]
-symbaker = { git = "https://github.com/your-org/symbaker" }
-```
-
 ## Macro usage
 
 ```rust
@@ -35,9 +24,49 @@ use symbaker::symbaker;
 #[symbaker]
 pub extern "C" fn my_export() {}
 
-#[symbaker(prefix = "my_mod")]
+#[symbaker(prefix = "plugin_name")]
 pub extern "C" fn my_export2() {}
 ```
+
+`symbaker_module` custom filters (simple):
+
+```rust
+use symbaker::symbaker_module;
+
+// 1) Prefix every function in the module (default behavior)
+#[symbaker_module]
+mod all_exports {}
+
+// 2) Make your own rules
+#[symbaker_module(
+    include_regex = "^keep_,special$",
+    exclude_glob = "*skip*",
+    template = "{prefix}{sep}{module}_{name}{suffix}",
+    suffix = "_v2"
+)]
+mod custom_rules {}
+```
+
+How rules work:
+
+- Default is all functions in the module.
+- `include_regex` / `include_glob` keeps only matching functions.
+- `exclude_regex` / `exclude_glob` removes matching functions.
+- `template` controls final symbol name.
+- `suffix` is available in template as `{suffix}`.
+
+Template placeholders:
+
+- `{prefix}` resolved prefix
+- `{sep}` separator (default `__`)
+- `{module}` module name
+- `{name}` function name
+- `{suffix}` optional suffix
+
+Tip:
+
+- Multiple regex/glob patterns are comma-separated, for example:
+  - `include_glob = "init_*,main_*"`
 
 ## Config
 
@@ -52,31 +81,17 @@ Environment variables:
 Example TOML file:
 
 ```toml
-prefix = "mygame"
+prefix = "plugin_name"
 sep = "__"
 priority = ["attr", "env_prefix", "config", "top_package", "workspace", "package", "crate"]
 ```
 
-## Export dump tool
+## Cargo Symdump
 
-This repo includes two ways to dump exported symbols from a built `.nro` into a sidecar text file:
-
-- Python script: `scripts/dump_nro_exports.py`
-- Cargo subcommand binary: `cargo-symdump`
-
-### Recommended workflow
-
-`cargo` does not support a built-in `cargo build --symdump` post-build hook.
-Use the subcommand instead:
+Building:
 
 ```bash
 cargo symdump --release
-```
-
-Update the tool later with:
-
-```bash
-cargo symdump update
 ```
 
 `cargo-symdump` automatically sets `SYMBAKER_TOP_PACKAGE` for that build when it can resolve the top package via `cargo metadata`.
@@ -91,40 +106,4 @@ Dump-only mode:
 cargo symdump dump path/to/file.nro
 ```
 
-Result:
-
-- The `.nro` stays in place.
-- A sibling text file is emitted in the same folder (same base filename + `.exports.txt`).
-
-## Rust testing workflow
-
-Rust already has a standard test workflow:
-
-- Unit tests in source files via `#[cfg(test)]`.
-- Integration tests in `tests/`.
-- Run all tests with:
-
-```bash
-cargo test
-```
-
-This repo includes an integration test that builds a fixture crate and validates exported symbols.
-
-To also verify sidecar emission behavior, run:
-
-```bash
-cargo test --test symdump_sidecar
-```
-
-This test leaves `fixture_app_test.nro` and `fixture_app_test.nro.exports.txt` in `tests/fixture_app/target/debug/`.
-
-To verify host-prefix propagation for a dependency export and sidecar output, run:
-
-```bash
-cargo test --test host_prefix_propagation
-```
-
-This test builds `tests/host_app` (which depends on `tests/dep_lib`) and leaves:
-
-- `tests/host_app/target/debug/host_app_test.nro`
-- `tests/host_app/target/debug/host_app_test.nro.exports.txt`
+- Text file is emitted in the same folder (same base filename + `.exports.txt`).
