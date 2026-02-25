@@ -149,11 +149,44 @@ fn read_prefix_from_package_metadata() -> Option<String> {
         .map(|s| s.to_string())
 }
 
+fn read_package_prefers_own_prefix() -> bool {
+    let dir = match std::env::var("CARGO_MANIFEST_DIR") {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let cargo = std::path::Path::new(&dir).join("Cargo.toml");
+    let text = match std::fs::read_to_string(cargo) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let v: toml::Value = match toml::from_str(&text) {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    v.get("package")
+        .and_then(|p| p.get("metadata"))
+        .and_then(|m| m.get("symbaker"))
+        .and_then(|s| s.get("prefer_package_prefix"))
+        .and_then(|b| b.as_bool())
+        .unwrap_or(false)
+}
+
 fn resolve_prefix(attr_prefix: Option<String>) -> (String, String) {
     let cfg = load_config();
 
     let sep = cfg.sep.clone().unwrap_or_else(|| "__".into());
     let prio = cfg.priority.clone().unwrap_or_else(default_priority);
+    let package_prefix = read_prefix_from_package_metadata();
+
+    // Per-crate opt-out of inherited top-level prefix.
+    // If set, package prefix wins (or crate name fallback if no explicit prefix).
+    if read_package_prefers_own_prefix() {
+        if let Some(p) = &package_prefix {
+            return (sanitize(p), sep);
+        }
+        let p = std::env::var("CARGO_PKG_NAME").unwrap_or_else(|_| "crate".into());
+        return (sanitize(&p), sep);
+    }
 
     // Note: “config” here means the parsed file via SYMBAKER_CONFIG;
     // env overrides come via SYMBAKER_PREFIX.
@@ -164,7 +197,7 @@ fn resolve_prefix(attr_prefix: Option<String>) -> (String, String) {
             "config" => if let Some(p) = &cfg.prefix { return (sanitize(p), sep); }
             "top_package" => if let Some(p) = top_level_package_name() { return (sanitize(&p), sep); }
             "workspace" => if let Some(p) = read_prefix_from_workspace_metadata() { return (sanitize(&p), sep); }
-            "package" => if let Some(p) = read_prefix_from_package_metadata() { return (sanitize(&p), sep); }
+            "package" => if let Some(p) = &package_prefix { return (sanitize(p), sep); }
             "crate" => {
                 let p = std::env::var("CARGO_PKG_NAME").unwrap_or_else(|_| "crate".into());
                 return (sanitize(&p), sep);

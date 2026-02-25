@@ -86,6 +86,44 @@ sep = "__"
 priority = ["attr", "env_prefix", "config", "top_package", "workspace", "package", "crate"]
 ```
 
+### Cargo.toml metadata inheritance examples
+
+Top-level app forcing one shared prefix for everything:
+
+```toml
+# app/Cargo.toml
+[package]
+name = "my_plugin"
+
+[package.metadata.symbaker]
+prefix = "my_plugin"
+```
+
+Workspace-level shared prefix:
+
+```toml
+# workspace Cargo.toml
+[workspace.metadata.symbaker]
+prefix = "mods"
+```
+
+Child dependency opting out and using its own prefix:
+
+```toml
+# dependency crate Cargo.toml
+[package]
+name = "child_crate"
+
+[package.metadata.symbaker]
+prefix = "child_crate"
+prefer_package_prefix = true
+```
+
+Notes:
+
+- `prefer_package_prefix = true` makes that crate ignore inherited top-level prefix and keep its own.
+- Without that flag, inherited top-level prefix is used first by default.
+
 ## Cargo Symdump
 
 Building:
