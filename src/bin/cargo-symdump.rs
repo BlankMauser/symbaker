@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 use serde::Serialize;
 use serde_json::Value;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 #[path = "../out.rs"]
 mod out;
@@ -770,30 +772,33 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
 
     if cfg!(windows) {
         let repo_ps = repo.replace('\'', "''");
+        let pid = std::process::id();
         let mut script = format!(
-            "$ErrorActionPreference='Stop'; Start-Sleep -Milliseconds 1200; cargo install --git '{}' --bin cargo-symdump --force",
-            repo_ps
+            "$ErrorActionPreference='Stop'; Wait-Process -Id {}; cargo install --git '{}' --bin cargo-symdump --force",
+            pid, repo_ps
         );
         if offline {
             script.push_str(" --offline");
         }
-        let status = Command::new("cmd")
-            .args([
-                "/C",
-                "start",
-                "",
-                "powershell",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                &script,
-            ])
-            .status()
+        script.push_str("; Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force");
+
+        let mut script_path = env::temp_dir();
+        script_path.push(format!("cargo-symdump-update-{}.ps1", pid));
+        fs::write(&script_path, script)
+            .map_err(|e| format!("write {}: {e}", script_path.display()))?;
+
+        let mut cmd = Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &script_path.to_string_lossy(),
+        ]);
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        cmd.spawn()
             .map_err(|e| format!("failed to schedule Windows self-update: {e}"))?;
-        if !status.success() {
-            return Err("failed to schedule Windows self-update command".to_string());
-        }
+
         println!("scheduled cargo-symdump update from: {repo}");
         println!("close this command and rerun after a moment to use the updated binary");
         if offline {
