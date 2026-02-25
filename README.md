@@ -183,6 +183,15 @@ Dump-only mode:
 cargo symdump dump path/to/file.nro
 ```
 
+Batch dump folders (recursively scans for `.nro`):
+
+```bash
+cargo symdump dump path/to/folder [another/folder]
+```
+
+When multiple artifacts are dumped, `cargo symdump` automatically checks for
+duplicate exported symbols across files and writes `.symbaker/duplicates.log`.
+
 Wrap arbitrary cargo subcommands with symbaker env injection:
 
 ```bash

@@ -1,7 +1,7 @@
 use std::env;
 use std::ffi::OsString;
 use std::fs;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 use serde::Serialize;
@@ -16,16 +16,16 @@ fn usage() {
     eprintln!("cargo-symdump: build then dump exported symbols from newest .nro");
     eprintln!("usage:");
     eprintln!("  cargo symdump init [--prefix <name>] [--force]");
-    eprintln!("  cargo symdump --release");
-    eprintln!("  cargo symdump build --profile release --target-dir target");
-    eprintln!("  cargo symdump skyline build --release");
-    eprintln!("  cargo symdump run <cargo-subcommand...>");
-    eprintln!("  cargo symdump dump path/to/file.nro");
+    eprintln!("  cargo symdump [--trace] --release");
+    eprintln!("  cargo symdump [--trace] build --profile release --target-dir target");
+    eprintln!("  cargo symdump [--trace] skyline build --release");
+    eprintln!("  cargo symdump run [--trace] <cargo-subcommand...>");
+    eprintln!("  cargo symdump dump <path/to/file.nro|path/to/folder> [more paths...]");
     eprintln!("  cargo symdump update [--repo <git-url>] [--offline]");
     eprintln!("  outputs:");
     eprintln!("  - .symbaker/sym.log");
-    eprintln!("  - .symbaker/resolution.toml");
-    eprintln!("  - .symbaker/trace.log");
+    eprintln!("  - .symbaker/resolution.toml (only with --trace)");
+    eprintln!("  - .symbaker/trace.log (only with --trace)");
 }
 
 fn find_flag_value(args: &[OsString], flag: &str) -> Option<PathBuf> {
@@ -469,7 +469,12 @@ fn run_init(args: Vec<OsString>) -> Result<(), String> {
     Ok(())
 }
 
-fn apply_symbaker_env(cmd: &mut Command, cargo_args: &[OsString], workspace_root: &PathBuf) {
+fn apply_symbaker_env(
+    cmd: &mut Command,
+    cargo_args: &[OsString],
+    workspace_root: &PathBuf,
+    trace_enabled: bool,
+) {
     if env::var_os("SYMBAKER_TOP_PACKAGE").is_none() {
         if let Some(pkg) = out::discover_top_package_name(cargo_args) {
             cmd.env("SYMBAKER_TOP_PACKAGE", pkg);
@@ -486,12 +491,14 @@ fn apply_symbaker_env(cmd: &mut Command, cargo_args: &[OsString], workspace_root
     if env::var_os("SYMBAKER_INITIALIZED").is_none() {
         cmd.env("SYMBAKER_INITIALIZED", "1");
     }
-    if env::var_os("SYMBAKER_TRACE").is_none() {
-        cmd.env("SYMBAKER_TRACE", "1");
-    }
-    if env::var_os("SYMBAKER_TRACE_FILE").is_none() {
-        let trace_path = workspace_root.join(".symbaker").join("trace.log");
-        cmd.env("SYMBAKER_TRACE_FILE", trace_path);
+    if trace_enabled {
+        if env::var_os("SYMBAKER_TRACE").is_none() {
+            cmd.env("SYMBAKER_TRACE", "1");
+        }
+        if env::var_os("SYMBAKER_TRACE_FILE").is_none() {
+            let trace_path = workspace_root.join(".symbaker").join("trace.log");
+            cmd.env("SYMBAKER_TRACE_FILE", trace_path);
+        }
     }
 }
 
@@ -506,17 +513,21 @@ fn run_build_then_dump(mut args: Vec<OsString>) -> Result<(), String> {
         args.remove(0);
     }
 
+    let trace_enabled = has_flag(&args, "--trace");
+    args.retain(|a| a != "--trace");
     if args.is_empty() || args[0].to_string_lossy().starts_with('-') {
         args.insert(0, OsString::from("build"));
     }
     let workspace_root = discover_workspace_root_for_args(&args)?;
     let out_dir = symbaker_output_dir(&workspace_root)?;
     let trace_file = out_dir.join("trace.log");
-    let _ = fs::remove_file(&trace_file);
+    if trace_enabled {
+        let _ = fs::remove_file(&trace_file);
+    }
 
     let mut build = Command::new("cargo");
     build.args(&args);
-    apply_symbaker_env(&mut build, &args, &workspace_root);
+    apply_symbaker_env(&mut build, &args, &workspace_root, trace_enabled);
     let status = build.status().map_err(|e| format!("failed to run cargo build: {e}"))?;
     if !status.success() {
         return Err(format!("cargo {:?} failed", args));
@@ -527,7 +538,11 @@ fn run_build_then_dump(mut args: Vec<OsString>) -> Result<(), String> {
     let nro = out::newest_nro(&target_dir, profile.as_deref())?;
     let out = out::write_exports_sidecar(&nro)?;
     let sym_log = out::write_symbol_log(&nro, &out_dir.join("sym.log"))?;
-    let resolution = write_resolution_report(&workspace_root, &args, &trace_file).ok();
+    let resolution = if trace_enabled {
+        write_resolution_report(&workspace_root, &args, &trace_file).ok()
+    } else {
+        None
+    };
 
     println!("nro: {}", nro.display());
     println!("exports: {}", out.display());
@@ -546,36 +561,173 @@ fn run_wrapped_cargo(mut args: Vec<OsString>) -> Result<(), String> {
     {
         args.remove(0);
     }
+    let trace_enabled = has_flag(&args, "--trace");
+    args.retain(|a| a != "--trace");
     if args.is_empty() {
         return Err("usage: cargo symdump run <cargo-subcommand...>".to_string());
     }
     let workspace_root = discover_workspace_root_for_args(&args)?;
     let out_dir = symbaker_output_dir(&workspace_root)?;
     let trace_file = out_dir.join("trace.log");
-    let _ = fs::remove_file(&trace_file);
+    if trace_enabled {
+        let _ = fs::remove_file(&trace_file);
+    }
 
     let mut cmd = Command::new("cargo");
     cmd.args(&args);
-    apply_symbaker_env(&mut cmd, &args, &workspace_root);
+    apply_symbaker_env(&mut cmd, &args, &workspace_root, trace_enabled);
     let status = cmd.status().map_err(|e| format!("failed to run cargo: {e}"))?;
     if !status.success() {
         return Err(format!("cargo {:?} failed", args));
     }
-    if let Ok(report) = write_resolution_report(&workspace_root, &args, &trace_file) {
-        println!("resolution: {}", report.display());
+    if trace_enabled {
+        if let Ok(report) = write_resolution_report(&workspace_root, &args, &trace_file) {
+            println!("resolution: {}", report.display());
+        }
     }
     Ok(())
 }
 
-fn run_dump_only(path: PathBuf) -> Result<(), String> {
-    let nro = path.canonicalize().map_err(|e| format!("{}: {e}", path.display()))?;
-    let out = out::write_exports_sidecar(&nro)?;
+fn collect_nro_files(dir: &PathBuf) -> Result<Vec<PathBuf>, String> {
+    let mut stack = vec![dir.clone()];
+    let mut found = Vec::<PathBuf>::new();
+    while let Some(cur) = stack.pop() {
+        let entries = fs::read_dir(&cur).map_err(|e| format!("read_dir {}: {e}", cur.display()))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| format!("read_dir entry error: {e}"))?;
+            let path = entry.path();
+            let meta = entry
+                .metadata()
+                .map_err(|e| format!("metadata {}: {e}", path.display()))?;
+            if meta.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|s| s.to_str()) == Some("nro") {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
+fn resolve_dump_inputs(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, String> {
+    if paths.is_empty() {
+        return Err("usage: cargo symdump dump <path/to/file.nro|path/to/folder> [more paths...]".to_string());
+    }
+
+    let mut files = Vec::<PathBuf>::new();
+    for path in paths {
+        let canon = path.canonicalize().map_err(|e| format!("{}: {e}", path.display()))?;
+        let meta = fs::metadata(&canon).map_err(|e| format!("metadata {}: {e}", canon.display()))?;
+        if meta.is_dir() {
+            files.extend(collect_nro_files(&canon)?);
+        } else if meta.is_file() {
+            files.push(canon);
+        } else {
+            return Err(format!("unsupported path type: {}", canon.display()));
+        }
+    }
+
+    let mut uniq = BTreeSet::<PathBuf>::new();
+    for file in files {
+        uniq.insert(file);
+    }
+    let out: Vec<PathBuf> = uniq.into_iter().collect();
+    if out.is_empty() {
+        return Err("no files to dump (no .nro files found in provided folders)".to_string());
+    }
+    Ok(out)
+}
+
+fn find_duplicate_symbols(rows: &[(PathBuf, Vec<String>)]) -> Vec<(String, Vec<PathBuf>)> {
+    let mut by_symbol = BTreeMap::<String, BTreeSet<PathBuf>>::new();
+    for (artifact, symbols) in rows {
+        let mut seen = HashSet::<String>::new();
+        for symbol in symbols {
+            if !seen.insert(symbol.clone()) {
+                continue;
+            }
+            by_symbol
+                .entry(symbol.clone())
+                .or_default()
+                .insert(artifact.clone());
+        }
+    }
+
+    by_symbol
+        .into_iter()
+        .filter_map(|(symbol, files)| {
+            if files.len() <= 1 {
+                None
+            } else {
+                Some((symbol, files.into_iter().collect()))
+            }
+        })
+        .collect()
+}
+
+fn write_batch_sym_log(rows: &[(PathBuf, Vec<String>)], out_path: &PathBuf) -> Result<(), String> {
+    let mut body = String::new();
+    body.push_str("# symbaker sym.log\n");
+    body.push_str("# format: source=<path> then one symbol per line\n");
+    for (artifact, symbols) in rows {
+        body.push_str(&format!("\n# source={}\n", artifact.display()));
+        for symbol in symbols {
+            body.push_str(symbol);
+            body.push('\n');
+        }
+    }
+    fs::write(out_path, body).map_err(|e| format!("write {}: {e}", out_path.display()))
+}
+
+fn run_dump_many(paths: Vec<PathBuf>) -> Result<(), String> {
+    let files = resolve_dump_inputs(paths)?;
     let root = discover_workspace_root()?;
     let out_dir = symbaker_output_dir(&root)?;
-    let sym_log = out::write_symbol_log(&nro, &out_dir.join("sym.log"))?;
-    println!("nro: {}", nro.display());
-    println!("exports: {}", out.display());
-    println!("sym.log: {}", sym_log.display());
+
+    let mut exports_by_file = Vec::<(PathBuf, Vec<String>)>::new();
+    for artifact in &files {
+        let sidecar = out::write_exports_sidecar(artifact)?;
+        let symbols = out::exported_symbols(artifact)?;
+        println!("nro: {}", artifact.display());
+        println!("exports: {}", sidecar.display());
+        exports_by_file.push((artifact.clone(), symbols));
+    }
+
+    let sym_log_path = out_dir.join("sym.log");
+    if exports_by_file.len() == 1 {
+        let sym_log = out::write_symbol_log(&exports_by_file[0].0, &sym_log_path)?;
+        println!("sym.log: {}", sym_log.display());
+    } else {
+        write_batch_sym_log(&exports_by_file, &sym_log_path)?;
+        println!("sym.log: {}", sym_log_path.display());
+    }
+
+    let duplicates = find_duplicate_symbols(&exports_by_file);
+    if duplicates.is_empty() {
+        println!("duplicate symbols: none (checked {} artifact(s))", exports_by_file.len());
+        return Ok(());
+    }
+
+    let dup_log = out_dir.join("duplicates.log");
+    let mut dup_body = String::new();
+    dup_body.push_str("# symbaker duplicates.log\n");
+    dup_body.push_str("# format: symbol followed by files exporting it\n");
+    for (symbol, files) in &duplicates {
+        dup_body.push_str(&format!("\n{symbol}\n"));
+        for file in files {
+            dup_body.push_str(&format!("  {}\n", file.display()));
+        }
+    }
+    fs::write(&dup_log, dup_body).map_err(|e| format!("write {}: {e}", dup_log.display()))?;
+    println!("duplicates: {}", dup_log.display());
+    println!(
+        "found {} duplicated symbol(s) across {} artifact(s)",
+        duplicates.len(),
+        exports_by_file.len()
+    );
     Ok(())
 }
 
@@ -681,9 +833,9 @@ fn main() -> ExitCode {
 
     let result = if args[0] == "dump" {
         if args.len() < 2 {
-            Err("usage: cargo symdump dump path/to/file.nro".to_string())
+            Err("usage: cargo symdump dump <path/to/file.nro|path/to/folder> [more paths...]".to_string())
         } else {
-            run_dump_only(PathBuf::from(args.remove(1)))
+            run_dump_many(args.into_iter().skip(1).map(PathBuf::from).collect())
         }
     } else if args[0] == "init" {
         run_init(args.into_iter().skip(1).collect())

@@ -2,6 +2,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 fn is_dynamic_lib(path: &Path) -> bool {
     matches!(
@@ -42,6 +43,14 @@ fn newest_dynamic_lib(root: &Path, stem: &str) -> Option<PathBuf> {
     best.map(|(p, _)| p)
 }
 
+fn unique_temp_dir(prefix: &str) -> PathBuf {
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!("{prefix}_{ts}_{}", std::process::id()))
+}
+
 #[test]
 fn cargo_symdump_writes_sidecar_txt_next_to_nro() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -76,5 +85,63 @@ fn cargo_symdump_writes_sidecar_txt_next_to_nro() {
     assert!(
         body.contains("fixture_app__auto_named"),
         "sidecar missing expected symbol"
+    );
+}
+
+#[test]
+fn cargo_symdump_dump_accepts_folder_and_writes_sidecars_for_nros() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let fixture = root.join("tests").join("fixture_app");
+
+    let status = Command::new("cargo")
+        .arg("build")
+        .arg("--manifest-path")
+        .arg(fixture.join("Cargo.toml"))
+        .status()
+        .expect("failed to build fixture_app");
+    assert!(status.success(), "fixture_app build failed");
+
+    let artifact_root = fixture.join("target").join("debug");
+    let lib = newest_dynamic_lib(&artifact_root, "fixture_app")
+        .unwrap_or_else(|| panic!("could not find fixture dynamic library under {}", artifact_root.display()));
+
+    let dump_root = unique_temp_dir("symdump_folder_mode");
+    let sub_dir = dump_root.join("nested");
+    fs::create_dir_all(&sub_dir).unwrap_or_else(|e| panic!("mkdir {}: {e}", sub_dir.display()));
+
+    let nro_a = dump_root.join("alpha.nro");
+    let nro_b = sub_dir.join("beta.nro");
+    fs::copy(&lib, &nro_a).unwrap_or_else(|e| panic!("copy {} -> {}: {e}", lib.display(), nro_a.display()));
+    fs::copy(&lib, &nro_b).unwrap_or_else(|e| panic!("copy {} -> {}: {e}", lib.display(), nro_b.display()));
+
+    let status = Command::new("cargo")
+        .args(["run", "--bin", "cargo-symdump", "--", "dump"])
+        .arg(&nro_a)
+        .status()
+        .expect("failed to run cargo-symdump dump");
+    assert!(status.success(), "single-file dump failed unexpectedly");
+
+    let status = Command::new("cargo")
+        .args(["run", "--bin", "cargo-symdump", "--", "dump"])
+        .arg(&dump_root)
+        .status()
+        .expect("failed to run cargo-symdump folder dump");
+    assert!(
+        status.success(),
+        "folder dump should still succeed while logging duplicate symbols"
+    );
+
+    let sidecar_a = dump_root.join("alpha.nro.exports.txt");
+    let sidecar_b = sub_dir.join("beta.nro.exports.txt");
+    assert!(sidecar_a.exists(), "missing sidecar file: {}", sidecar_a.display());
+    assert!(sidecar_b.exists(), "missing sidecar file: {}", sidecar_b.display());
+
+    let dup_log = root.join(".symbaker").join("duplicates.log");
+    assert!(dup_log.exists(), "missing duplicate log: {}", dup_log.display());
+    let dup_body =
+        fs::read_to_string(&dup_log).unwrap_or_else(|e| panic!("read {}: {e}", dup_log.display()));
+    assert!(
+        dup_body.contains("fixture_app__auto_named"),
+        "duplicate report missing expected symbol"
     );
 }

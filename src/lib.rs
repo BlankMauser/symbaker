@@ -194,7 +194,7 @@ fn warn_on_dependency_fallback(source: PrefixSource) {
             let _ = DID_WARN.set(());
             let crate_name = std::env::var("CARGO_PKG_NAME").unwrap_or_else(|_| "unknown".into());
             eprintln!(
-                "warning: symbaker fallback detected in dependency crate {:?}: resolved local {:?} source. This can leak dependency prefixes into final exports. Recommended: run `cargo symdump init` in workspace root (enables SYMBAKER_REQUIRE_CONFIG=1 and SYMBAKER_ENFORCE_INHERIT=1), or set SYMBAKER_CONFIG/SYMBAKER_TOP_PACKAGE explicitly.",
+                "warning: symbaker fallback detected in dependency crate {:?}: resolved local {:?} source. This can leak dependency prefixes into final exports. run `cargo symdump init` in workspace root (enables SYMBAKER_REQUIRE_CONFIG=1 and SYMBAKER_ENFORCE_INHERIT=1), or set SYMBAKER_CONFIG/SYMBAKER_TOP_PACKAGE explicitly.",
                 crate_name, source
             );
         }
