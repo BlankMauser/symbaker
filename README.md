@@ -45,7 +45,16 @@ mod all_exports {}
 mod custom_rules {}
 ```
 
+### IMPORTANT
+
 ## Recommended one-time setup
+
+Install:
+
+```bash
+cargo install --git https://github.com/BlankMauser/symbaker --bin cargo-symdump --bin cargo-symdump-installer --force
+cargo symdump update
+```
 
 Run from workspace/repo root:
 
@@ -155,21 +164,20 @@ This rewrites `symbaker.toml` template and re-adds missing symbaker env keys.
 
 ## Cargo Symdump
 
-Build + dump:
-
 ```bash
+# update (uses the bundled installer and shows progress in the same terminal)
+cargo symdump update
+
+# pin update to a commit (or use <url>#<rev>)
+cargo symdump update --repo <commit-hash>
+
+# build + dump exported symbols from newest .nro
 cargo symdump --release
-```
 
-This wraps cargo build and exports verify artifacts.
-
-```bash
+# dump a specific .nro
 cargo symdump dump path/to/file.nro
-```
 
-Batch dump folders (recursively scans for `.nro`):
-
-```bash
+# batch dump folders (recursively scans for .nro)
 cargo symdump dump path/to/folder [another/folder]
 ```
 
