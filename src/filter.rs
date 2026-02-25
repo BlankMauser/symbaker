@@ -1,4 +1,3 @@
-use globset::{Glob, GlobSet, GlobSetBuilder};
 use regex::Regex;
 use syn::{punctuated::Punctuated, Expr, ExprLit, Lit, Meta, Token};
 
@@ -6,8 +5,8 @@ use syn::{punctuated::Punctuated, Expr, ExprLit, Lit, Meta, Token};
 pub struct ModuleRules {
     pub include_regex: Vec<Regex>,
     pub exclude_regex: Vec<Regex>,
-    pub include_glob: Option<GlobSet>,
-    pub exclude_glob: Option<GlobSet>,
+    pub include_glob: Vec<String>,
+    pub exclude_glob: Vec<String>,
     pub template: Option<String>,
     pub suffix: Option<String>,
 }
@@ -21,25 +20,16 @@ fn parse_csv(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn build_globset(
-    specs: &[String],
-    value_span: &Expr,
-    kind: &str,
-) -> Result<Option<GlobSet>, syn::Error> {
-    if specs.is_empty() {
-        return Ok(None);
-    }
-    let mut b = GlobSetBuilder::new();
+fn validate_globs(specs: &[String], value_span: &Expr, kind: &str) -> Result<Vec<String>, syn::Error> {
     for g in specs {
-        let glob = Glob::new(g).map_err(|e| {
-            syn::Error::new_spanned(value_span, format!("symbaker_module: invalid {kind} glob '{g}': {e}"))
-        })?;
-        b.add(glob);
+        if g.contains('[') || g.contains(']') || g.contains('{') || g.contains('}') {
+            return Err(syn::Error::new_spanned(
+                value_span,
+                format!("symbaker_module: unsupported {kind} glob '{g}' (use only '*' and '?')"),
+            ));
+        }
     }
-    let set = b.build().map_err(|e| {
-        syn::Error::new_spanned(value_span, format!("symbaker_module: invalid {kind} glob set: {e}"))
-    })?;
-    Ok(Some(set))
+    Ok(specs.to_vec())
 }
 
 fn compile_regexes(
@@ -89,14 +79,43 @@ pub fn parse_module_rules(args: &Punctuated<Meta, Token![,]>) -> Result<ModuleRu
             match key.as_str() {
                 "include_regex" => out.include_regex = compile_regexes(&include_regex_src, &nv.value, "include")?,
                 "exclude_regex" => out.exclude_regex = compile_regexes(&exclude_regex_src, &nv.value, "exclude")?,
-                "include_glob" => out.include_glob = build_globset(&include_glob_src, &nv.value, "include")?,
-                "exclude_glob" => out.exclude_glob = build_globset(&exclude_glob_src, &nv.value, "exclude")?,
+                "include_glob" => out.include_glob = validate_globs(&include_glob_src, &nv.value, "include")?,
+                "exclude_glob" => out.exclude_glob = validate_globs(&exclude_glob_src, &nv.value, "exclude")?,
                 _ => {}
             }
         }
     }
 
     Ok(out)
+}
+
+fn wildcard_match(pattern: &str, text: &str) -> bool {
+    let p = pattern.as_bytes();
+    let t = text.as_bytes();
+    let (mut pi, mut ti) = (0usize, 0usize);
+    let (mut star, mut match_i) = (None::<usize>, 0usize);
+
+    while ti < t.len() {
+        if pi < p.len() && (p[pi] == b'?' || p[pi] == t[ti]) {
+            pi += 1;
+            ti += 1;
+        } else if pi < p.len() && p[pi] == b'*' {
+            star = Some(pi);
+            pi += 1;
+            match_i = ti;
+        } else if let Some(star_pos) = star {
+            pi = star_pos + 1;
+            match_i += 1;
+            ti = match_i;
+        } else {
+            return false;
+        }
+    }
+
+    while pi < p.len() && p[pi] == b'*' {
+        pi += 1;
+    }
+    pi == p.len()
 }
 
 impl ModuleRules {
@@ -106,10 +125,10 @@ impl ModuleRules {
         } else {
             self.include_regex.iter().any(|r| r.is_match(name))
         };
-        let glob_ok = if let Some(set) = &self.include_glob {
-            set.is_match(name)
-        } else {
+        let glob_ok = if self.include_glob.is_empty() {
             true
+        } else {
+            self.include_glob.iter().any(|g| wildcard_match(g, name))
         };
         regex_ok && glob_ok
     }
@@ -118,10 +137,8 @@ impl ModuleRules {
         if self.exclude_regex.iter().any(|r| r.is_match(name)) {
             return true;
         }
-        if let Some(set) = &self.exclude_glob {
-            if set.is_match(name) {
-                return true;
-            }
+        if self.exclude_glob.iter().any(|g| wildcard_match(g, name)) {
+            return true;
         }
         false
     }
