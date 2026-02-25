@@ -21,7 +21,7 @@ fn usage() {
     eprintln!("  cargo symdump [--trace] skyline build --release");
     eprintln!("  cargo symdump run [--trace] <cargo-subcommand...>");
     eprintln!("  cargo symdump dump <path/to/file.nro|path/to/folder> [more paths...]");
-    eprintln!("  cargo symdump update [--repo <git-url|commit>] [--offline] [--path <dir>]");
+    eprintln!("  cargo symdump update [--repo <git-url|commit>] [--path <dir>]");
     eprintln!("  outputs:");
     eprintln!("  - .symbaker/sym.log");
     eprintln!("  - .symbaker/resolution.toml (only with --trace)");
@@ -749,7 +749,6 @@ fn run_dump_many(paths: Vec<PathBuf>) -> Result<(), String> {
 
 fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
     let mut repo_arg = DEFAULT_REPO.to_string();
-    let mut offline = false;
     let mut install_root = None::<PathBuf>;
     let mut i = 0usize;
     while i < args.len() {
@@ -762,11 +761,6 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
         }
         if let Some(v) = cur.strip_prefix("--repo=") {
             repo_arg = v.to_string();
-            args.remove(i);
-            continue;
-        }
-        if cur == "--offline" {
-            offline = true;
             args.remove(i);
             continue;
         }
@@ -792,10 +786,36 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
             .ok_or_else(|| "could not resolve cargo-symdump.exe parent dir".to_string())?;
         let installer = exe_dir.join("cargo-symdump-installer.exe");
         if !installer.exists() {
-            return Err(format!(
-                "missing installer binary: {}",
-                installer.display()
-            ));
+            let (repo, rev) = resolve_repo_arg(&repo_arg);
+            let mut install_args = vec![
+                OsString::from("install"),
+                OsString::from("--git"),
+                OsString::from(repo.clone()),
+                OsString::from("--bin"),
+                OsString::from("cargo-symdump-installer"),
+                OsString::from("--force"),
+            ];
+            if let Some(rev) = rev {
+                install_args.push(OsString::from("--rev"));
+                install_args.push(OsString::from(rev));
+            }
+            if let Some(root) = &install_root {
+                install_args.push(OsString::from("--root"));
+                install_args.push(root.clone().into_os_string());
+            }
+            let status = Command::new("cargo")
+                .args(&install_args)
+                .status()
+                .map_err(|e| format!("failed to bootstrap installer: {e}"))?;
+            if !status.success() {
+                return Err("failed to bootstrap cargo-symdump-installer".to_string());
+            }
+            if !installer.exists() {
+                return Err(format!(
+                    "installer still missing after bootstrap: {}",
+                    installer.display()
+                ));
+            }
         }
 
         let mut cmd = Command::new(installer);
@@ -803,9 +823,6 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
         cmd.arg(std::process::id().to_string());
         cmd.arg("--repo");
         cmd.arg(repo_arg.clone());
-        if offline {
-            cmd.arg("--offline");
-        }
         if let Some(root) = &install_root {
             cmd.arg("--path");
             cmd.arg(root);
@@ -833,9 +850,6 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
         install_args.push(OsString::from("--rev"));
         install_args.push(OsString::from(rev));
     }
-    if offline {
-        install_args.push(OsString::from("--offline"));
-    }
     if let Some(root) = &install_root {
         install_args.push(OsString::from("--root"));
         install_args.push(root.clone().into_os_string());
@@ -850,9 +864,6 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
     }
 
     println!("updated cargo-symdump from: {repo}");
-    if offline {
-        println!("mode: offline");
-    }
     Ok(())
 }
 

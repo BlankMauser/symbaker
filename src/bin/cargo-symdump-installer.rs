@@ -35,7 +35,7 @@ fn wait_for_pid(_pid: u32) {}
 fn usage() {
     eprintln!("cargo-symdump-installer");
     eprintln!("usage:");
-    eprintln!("  cargo-symdump-installer [--repo <git-url|commit>] [--offline] [--path <dir>] [--wait-pid <pid>]");
+    eprintln!("  cargo-symdump-installer [--repo <git-url|commit>] [--path <dir>] [--wait-pid <pid>]");
 }
 
 fn resolve_repo_arg(raw: &str) -> (String, Option<String>) {
@@ -56,9 +56,8 @@ fn resolve_repo_arg(raw: &str) -> (String, Option<String>) {
 
 fn parse_args(
     args: &[OsString],
-) -> Result<(String, Option<String>, bool, Option<PathBuf>, Option<u32>), String> {
+) -> Result<(String, Option<String>, Option<PathBuf>, Option<u32>), String> {
     let mut repo_arg = DEFAULT_REPO.to_string();
-    let mut offline = false;
     let mut install_root = None::<PathBuf>;
     let mut wait_pid = None::<u32>;
     let mut i = 0usize;
@@ -71,11 +70,6 @@ fn parse_args(
         }
         if let Some(v) = cur.strip_prefix("--repo=") {
             repo_arg = v.to_string();
-            i += 1;
-            continue;
-        }
-        if cur == "--offline" {
-            offline = true;
             i += 1;
             continue;
         }
@@ -109,7 +103,7 @@ fn parse_args(
         return Err(format!("unknown arg: {}", cur));
     }
     let (repo, rev) = resolve_repo_arg(&repo_arg);
-    Ok((repo, rev, offline, install_root, wait_pid))
+    Ok((repo, rev, install_root, wait_pid))
 }
 
 fn main() -> ExitCode {
@@ -119,7 +113,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    let (repo, rev, offline, install_root, wait_pid) = match parse_args(&args) {
+    let (repo, rev, install_root, wait_pid) = match parse_args(&args) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("error: {e}");
@@ -148,18 +142,12 @@ fn main() -> ExitCode {
         cmd.arg("--rev");
         cmd.arg(rev);
     }
-    if offline {
-        cmd.arg("--offline");
-    }
     if let Some(root) = &install_root {
         cmd.arg("--root");
         cmd.arg(root);
     }
 
     println!("updating cargo-symdump from: {repo}");
-    if offline {
-        println!("mode: offline");
-    }
     if let Some(root) = &install_root {
         println!("install root: {}", root.display());
     }
