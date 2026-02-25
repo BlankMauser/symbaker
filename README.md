@@ -28,6 +28,18 @@ pub extern "C" fn my_export() {}
 pub extern "C" fn my_export2() {}
 ```
 
+Resolve the prefix as a string literal at compile time:
+
+```rust
+const RESOLVED_PREFIX: &str = symbaker::resolved_prefix!();
+```
+
+Compile-time guard for max prefix length:
+
+```rust
+symbaker::assert_resolved_prefix_len!(16);
+```
+
 `symbaker_module` filters:
 
 ```rust

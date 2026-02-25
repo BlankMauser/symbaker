@@ -1,7 +1,9 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use std::{collections::HashMap, fs::OpenOptions, io::Write, sync::OnceLock};
-use syn::{parse_macro_input, punctuated::Punctuated, Expr, ExprLit, ItemFn, ItemMod, Lit, Meta, Token};
+use syn::{
+    parse_macro_input, punctuated::Punctuated, Expr, ExprLit, ItemFn, ItemMod, Lit, LitInt, Meta, Token,
+};
 
 use figment::{
     Figment,
@@ -461,6 +463,68 @@ fn push_export_name(fn_item: &mut ItemFn, export: String) {
     // Add/override export_name
     fn_item.attrs.retain(|a| !a.path().is_ident("export_name"));
     fn_item.attrs.push(syn::parse_quote!(#[export_name = #export]));
+}
+
+#[proc_macro]
+pub fn resolved_prefix(input: TokenStream) -> TokenStream {
+    if !input.is_empty() {
+        return syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "resolved_prefix! takes no arguments",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    warn_if_not_initialized();
+    if let Err(e) = validate_required_config() {
+        return e.to_compile_error().into();
+    }
+
+    let (prefix, _, source) = resolve_prefix(None);
+    warn_on_dependency_fallback(source);
+    if let Err(e) = enforce_inherited_prefix(source) {
+        return e.to_compile_error().into();
+    }
+
+    let lit = syn::LitStr::new(&prefix, proc_macro2::Span::call_site());
+    TokenStream::from(quote!(#lit))
+}
+
+#[proc_macro]
+pub fn assert_resolved_prefix_len(input: TokenStream) -> TokenStream {
+    let max = parse_macro_input!(input as LitInt);
+    let max_len = match max.base10_parse::<usize>() {
+        Ok(v) => v,
+        Err(e) => return syn::Error::new_spanned(max, e).to_compile_error().into(),
+    };
+
+    warn_if_not_initialized();
+    if let Err(e) = validate_required_config() {
+        return e.to_compile_error().into();
+    }
+
+    let (prefix, _, source) = resolve_prefix(None);
+    warn_on_dependency_fallback(source);
+    if let Err(e) = enforce_inherited_prefix(source) {
+        return e.to_compile_error().into();
+    }
+
+    if prefix.len() > max_len {
+        return syn::Error::new(
+            proc_macro2::Span::call_site(),
+            format!(
+                "symbaker: resolved prefix {:?} is too long ({} > {})",
+                prefix,
+                prefix.len(),
+                max_len
+            ),
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    TokenStream::new()
 }
 
 #[proc_macro_attribute]
