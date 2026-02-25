@@ -1,3 +1,7 @@
 **/target/
 Cargo.lock
 /scripts/nxo64
+.symbaker
+sym.log
+symbaker-trace.log
+.reference

@@ -103,10 +103,15 @@ fn dependency_symbol_uses_host_package_prefix_and_writes_sidecar() {
     assert!(status.success(), "host_app build failed");
 
     let artifact_root = target_dir.join("debug");
-    let lib = newest_dynamic_lib(&artifact_root, "host_app")
-        .unwrap_or_else(|| panic!("could not find host_app artifact under {}", artifact_root.display()));
+    let lib = newest_dynamic_lib(&artifact_root, "host_app").unwrap_or_else(|| {
+        panic!(
+            "could not find host_app artifact under {}",
+            artifact_root.display()
+        )
+    });
 
-    let exports = read_exports(&lib).unwrap_or_else(|| panic!("failed reading exports from {}", lib.display()));
+    let exports = read_exports(&lib)
+        .unwrap_or_else(|| panic!("failed reading exports from {}", lib.display()));
     assert!(
         exports.contains("host_app__dep_exported"),
         "expected dependency export to use host prefix; artifact: {}",
@@ -114,7 +119,8 @@ fn dependency_symbol_uses_host_package_prefix_and_writes_sidecar() {
     );
 
     let nro = artifact_root.join("host_app_test.nro");
-    fs::copy(&lib, &nro).unwrap_or_else(|e| panic!("copy {} -> {}: {e}", lib.display(), nro.display()));
+    fs::copy(&lib, &nro)
+        .unwrap_or_else(|e| panic!("copy {} -> {}: {e}", lib.display(), nro.display()));
 
     let status = Command::new("cargo")
         .args(["run", "--bin", "cargo-symdump", "--", "dump"])
@@ -124,9 +130,13 @@ fn dependency_symbol_uses_host_package_prefix_and_writes_sidecar() {
     assert!(status.success(), "cargo-symdump dump failed");
 
     let sidecar = artifact_root.join("host_app_test.nro.exports.txt");
-    assert!(sidecar.exists(), "missing sidecar file: {}", sidecar.display());
-    let sidecar_body =
-        fs::read_to_string(&sidecar).unwrap_or_else(|e| panic!("failed reading {}: {e}", sidecar.display()));
+    assert!(
+        sidecar.exists(),
+        "missing sidecar file: {}",
+        sidecar.display()
+    );
+    let sidecar_body = fs::read_to_string(&sidecar)
+        .unwrap_or_else(|e| panic!("failed reading {}: {e}", sidecar.display()));
     assert!(
         sidecar_body.contains("host_app__dep_exported"),
         "sidecar missing host-prefixed dependency export"
@@ -156,10 +166,15 @@ fn workspace_prefix_overrides_dependency_prefix_without_top_package_env() {
     assert!(status.success(), "workspace host build failed");
 
     let artifact_root = target_dir.join("debug");
-    let lib = newest_dynamic_lib(&artifact_root, "host_ws")
-        .unwrap_or_else(|| panic!("could not find host_ws artifact under {}", artifact_root.display()));
+    let lib = newest_dynamic_lib(&artifact_root, "host_ws").unwrap_or_else(|| {
+        panic!(
+            "could not find host_ws artifact under {}",
+            artifact_root.display()
+        )
+    });
 
-    let exports = read_exports(&lib).unwrap_or_else(|| panic!("failed reading exports from {}", lib.display()));
+    let exports = read_exports(&lib)
+        .unwrap_or_else(|| panic!("failed reading exports from {}", lib.display()));
     assert!(
         exports.contains("hdr__dep_exported"),
         "expected workspace prefix on dependency export; artifact: {}",

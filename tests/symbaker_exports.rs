@@ -78,8 +78,12 @@ fn exported_symbols_are_prefixed() {
     assert!(status.success(), "fixture_app build failed");
 
     let artifact_root = fixture.join("target").join("debug");
-    let lib = newest_dynamic_lib(&artifact_root, "fixture_app")
-        .unwrap_or_else(|| panic!("could not find built dynamic library under {}", artifact_root.display()));
+    let lib = newest_dynamic_lib(&artifact_root, "fixture_app").unwrap_or_else(|| {
+        panic!(
+            "could not find built dynamic library under {}",
+            artifact_root.display()
+        )
+    });
 
     let text = if lib.extension().and_then(OsStr::to_str) == Some("dll") {
         let Some(objdump) = pick_objdump_tool() else {

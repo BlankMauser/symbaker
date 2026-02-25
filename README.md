@@ -177,8 +177,11 @@ This rewrites `symbaker.toml` template and re-adds missing symbaker env keys.
 ## Cargo Symdump
 
 ```bash
-# update (uses the bundled installer and shows progress in the same terminal)
+# update cargo-symdump
 cargo symdump update
+
+# if warned that installer is outdated
+cargo install --git https://github.com/BlankMauser/symbaker --bin cargo-symdump-installer --force
 
 # pin update to a commit (or use <url>#<rev>)
 cargo symdump update --repo <commit-hash>

@@ -27,12 +27,8 @@ pub fn check_initialized() -> Result<(), String> {
         ));
     }
 
-    let cfg = env("SYMBAKER_CONFIG").ok_or_else(|| {
-        format!(
-            "symbaker-build: missing SYMBAKER_CONFIG. {}",
-            setup_hint()
-        )
-    })?;
+    let cfg = env("SYMBAKER_CONFIG")
+        .ok_or_else(|| format!("symbaker-build: missing SYMBAKER_CONFIG. {}", setup_hint()))?;
     if !Path::new(&cfg).exists() {
         return Err(format!(
             "symbaker-build: SYMBAKER_CONFIG points to missing file: {}. {}",

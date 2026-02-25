@@ -77,8 +77,12 @@ fn module_rules_control_prefixing_and_template() {
     assert!(status.success(), "rules_app build failed");
 
     let artifact_root = fixture.join("target").join("debug");
-    let lib = newest_dynamic_lib(&artifact_root, "rules_app")
-        .unwrap_or_else(|| panic!("could not find rules_app artifact under {}", artifact_root.display()));
+    let lib = newest_dynamic_lib(&artifact_root, "rules_app").unwrap_or_else(|| {
+        panic!(
+            "could not find rules_app artifact under {}",
+            artifact_root.display()
+        )
+    });
 
     let text = if lib.extension().and_then(OsStr::to_str) == Some("dll") {
         let Some(objdump) = pick_objdump_tool() else {
@@ -104,8 +108,20 @@ fn module_rules_control_prefixing_and_template() {
         String::from_utf8_lossy(&out.stdout).to_string()
     };
 
-    assert!(text.contains("rules_app__exports_keep_one_x"), "missing keep_one export");
-    assert!(text.contains("rules_app__exports_special_x"), "missing special export");
-    assert!(!text.contains("rules_app__exports_keep_skip_x"), "exclude glob failed");
-    assert!(!text.contains("rules_app__exports_other_x"), "include regex failed");
+    assert!(
+        text.contains("rules_app__exports_keep_one_x"),
+        "missing keep_one export"
+    );
+    assert!(
+        text.contains("rules_app__exports_special_x"),
+        "missing special export"
+    );
+    assert!(
+        !text.contains("rules_app__exports_keep_skip_x"),
+        "exclude glob failed"
+    );
+    assert!(
+        !text.contains("rules_app__exports_other_x"),
+        "include regex failed"
+    );
 }

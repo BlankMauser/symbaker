@@ -63,7 +63,10 @@ pub fn discover_top_package_name(args: &[OsString]) -> Option<String> {
 
 pub fn newest_nro(target_dir: &Path, profile: Option<&str>) -> Result<PathBuf, String> {
     if !target_dir.exists() {
-        return Err(format!("target dir does not exist: {}", target_dir.display()));
+        return Err(format!(
+            "target dir does not exist: {}",
+            target_dir.display()
+        ));
     }
 
     let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
@@ -159,7 +162,10 @@ fn parse_objdump_exports(text: &str) -> Vec<String> {
             continue;
         }
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 3 && parts[0].chars().all(|c| c.is_ascii_digit()) && parts[1].starts_with("0x") {
+        if parts.len() >= 3
+            && parts[0].chars().all(|c| c.is_ascii_digit())
+            && parts[1].starts_with("0x")
+        {
             let sym = parts[2];
             if !symbols.iter().any(|s| s == sym) {
                 symbols.push(sym.to_string());
@@ -189,7 +195,9 @@ fn cstr_at(bytes: &[u8], off: usize, max_end: usize) -> Option<String> {
     if end <= off {
         return None;
     }
-    std::str::from_utf8(&bytes[off..end]).ok().map(|s| s.to_string())
+    std::str::from_utf8(&bytes[off..end])
+        .ok()
+        .map(|s| s.to_string())
 }
 
 #[derive(Clone, Debug)]
@@ -241,15 +249,19 @@ fn read_u16_le(bytes: &[u8], off: usize) -> Option<u16> {
 fn parse_nro_symbols(path: &Path) -> Result<Vec<NroSymbol>, String> {
     let data = fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let header = 0x10usize;
-    let magic = data.get(header..header + 4).ok_or_else(|| "short file".to_string())?;
+    let magic = data
+        .get(header..header + 4)
+        .ok_or_else(|| "short file".to_string())?;
     if magic != b"NRO0" {
         return Ok(Vec::new());
     }
 
-    let dynstr_off = read_u32_le(&data, header + 0x70).ok_or_else(|| "invalid dynstr off".to_string())? as usize;
-    let dynstr_size =
-        read_u32_le(&data, header + 0x74).ok_or_else(|| "invalid dynstr size".to_string())? as usize;
-    let dynsym_off = read_u32_le(&data, header + 0x78).ok_or_else(|| "invalid dynsym off".to_string())? as usize;
+    let dynstr_off =
+        read_u32_le(&data, header + 0x70).ok_or_else(|| "invalid dynstr off".to_string())? as usize;
+    let dynstr_size = read_u32_le(&data, header + 0x74)
+        .ok_or_else(|| "invalid dynstr size".to_string())? as usize;
+    let dynsym_off =
+        read_u32_le(&data, header + 0x78).ok_or_else(|| "invalid dynsym off".to_string())? as usize;
 
     if dynstr_size == 0 || dynstr_off >= data.len() || dynsym_off >= data.len() {
         return Ok(Vec::new());
@@ -382,19 +394,19 @@ pub fn exported_symbols(path: &Path) -> Result<Vec<String>, String> {
     }
     if symbols.is_empty() {
         if let Some(nm) = pick_nm() {
-        let tries: [&[&str]; 4] = [
-            &["-g", "--defined-only"],
-            &["-D", "--defined-only"],
-            &["-gD"],
-            &["-g"],
-        ];
-        for t in tries {
-            symbols = run_nm(&nm, path, t)?;
-            if !symbols.is_empty() {
-                break;
+            let tries: [&[&str]; 4] = [
+                &["-g", "--defined-only"],
+                &["-D", "--defined-only"],
+                &["-gD"],
+                &["-g"],
+            ];
+            for t in tries {
+                symbols = run_nm(&nm, path, t)?;
+                if !symbols.is_empty() {
+                    break;
+                }
             }
         }
-    }
     }
 
     if symbols.is_empty() {

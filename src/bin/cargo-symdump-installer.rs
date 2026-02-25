@@ -35,7 +35,9 @@ fn wait_for_pid(_pid: u32) {}
 fn usage() {
     eprintln!("cargo-symdump-installer");
     eprintln!("usage:");
-    eprintln!("  cargo-symdump-installer [--repo <git-url|commit>] [--path <dir>] [--wait-pid <pid>]");
+    eprintln!(
+        "  cargo-symdump-installer [--repo <git-url|commit>] [--path <dir>] [--wait-pid <pid>]"
+    );
 }
 
 fn resolve_repo_arg(raw: &str) -> (String, Option<String>) {
@@ -47,7 +49,9 @@ fn resolve_repo_arg(raw: &str) -> (String, Option<String>) {
     let is_hex = !raw.is_empty()
         && raw.len() >= 7
         && raw.len() <= 40
-        && raw.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F'));
+        && raw
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F'));
     if is_hex {
         return (DEFAULT_REPO.to_string(), Some(raw.to_string()));
     }

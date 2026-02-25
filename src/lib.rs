@@ -2,12 +2,13 @@ use proc_macro::TokenStream;
 use quote::quote;
 use std::{collections::HashMap, fs::OpenOptions, io::Write, sync::OnceLock};
 use syn::{
-    parse_macro_input, punctuated::Punctuated, Expr, ExprLit, ItemFn, ItemMod, Lit, LitInt, Meta, Token,
+    parse_macro_input, punctuated::Punctuated, Expr, ExprLit, ItemFn, ItemMod, Lit, LitInt, Meta,
+    Token,
 };
 
 use figment::{
-    Figment,
     providers::{Env, Format, Toml},
+    Figment,
 };
 use serde::Deserialize;
 
@@ -36,11 +37,22 @@ enum PrefixSource {
     CrateFallbackAfterPriority,
 }
 fn sanitize(s: &str) -> String {
-    let mut out: String = s.chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '_' })
+    let mut out: String = s
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
-    if out.is_empty() { out.push('_'); }
-    if out.chars().next().unwrap().is_ascii_digit() { out.insert(0, '_'); }
+    if out.is_empty() {
+        out.push('_');
+    }
+    if out.chars().next().unwrap().is_ascii_digit() {
+        out.insert(0, '_');
+    }
     out
 }
 
@@ -214,7 +226,10 @@ fn load_config() -> Config {
     // Optional file config
     if let Some(p) = cfg_path.clone() {
         let exists = std::path::Path::new(&p).exists();
-        trace_emit(format!("load_config merging file path={:?} exists={}", p, exists));
+        trace_emit(format!(
+            "load_config merging file path={:?} exists={}",
+            p, exists
+        ));
         fig = fig.merge(Toml::file(p));
     }
 
@@ -240,8 +255,8 @@ fn load_config() -> Config {
 fn default_priority() -> Vec<String> {
     vec![
         "attr".into(),
-        "env_prefix".into(), // SYMBAKER_PREFIX
-        "config".into(),     // SYMBAKER_CONFIG file
+        "env_prefix".into(),  // SYMBAKER_PREFIX
+        "config".into(),      // SYMBAKER_CONFIG file
         "top_package".into(), // top-level package being built
         "workspace".into(),
         "package".into(),
@@ -280,11 +295,13 @@ fn read_prefix_from_workspace_metadata() -> Option<String> {
         if cargo.exists() {
             let text = std::fs::read_to_string(&cargo).ok()?;
             let v: toml::Value = toml::from_str(&text).ok()?;
-            if let Some(prefix) = v.get("workspace")
+            if let Some(prefix) = v
+                .get("workspace")
                 .and_then(|w| w.get("metadata"))
                 .and_then(|m| m.get("symbaker"))
                 .and_then(|s| s.get("prefix"))
-                .and_then(|p| p.as_str()) {
+                .and_then(|p| p.as_str())
+            {
                 trace_emit(format!(
                     "workspace metadata prefix found in {}: {:?}",
                     cargo.display(),
@@ -293,7 +310,9 @@ fn read_prefix_from_workspace_metadata() -> Option<String> {
                 return Some(prefix.to_string());
             }
         }
-        if !dir.pop() { break; }
+        if !dir.pop() {
+            break;
+        }
     }
     trace_emit("workspace metadata prefix not found while walking parent Cargo.toml files");
     None
@@ -399,39 +418,72 @@ fn resolve_prefix(attr_prefix: Option<String>) -> (String, String, PrefixSource)
     // env overrides come via SYMBAKER_PREFIX.
     for key in prio {
         match key.as_str() {
-            "attr" => if let Some(p) = &attr_prefix {
-                let chosen = sanitize(p);
-                trace_emit(format!("selected source=attr raw={:?} sanitized={:?}", p, chosen));
-                return (chosen, sep, PrefixSource::Attr);
+            "attr" => {
+                if let Some(p) = &attr_prefix {
+                    let chosen = sanitize(p);
+                    trace_emit(format!(
+                        "selected source=attr raw={:?} sanitized={:?}",
+                        p, chosen
+                    ));
+                    return (chosen, sep, PrefixSource::Attr);
+                }
             }
-            "env_prefix" => if let Some(p) = &env_prefix {
-                let chosen = sanitize(p);
-                trace_emit(format!("selected source=env_prefix raw={:?} sanitized={:?}", p, chosen));
-                return (chosen, sep, PrefixSource::EnvPrefix);
+            "env_prefix" => {
+                if let Some(p) = &env_prefix {
+                    let chosen = sanitize(p);
+                    trace_emit(format!(
+                        "selected source=env_prefix raw={:?} sanitized={:?}",
+                        p, chosen
+                    ));
+                    return (chosen, sep, PrefixSource::EnvPrefix);
+                }
             }
-            "config" => if let Some(p) = &cfg.prefix {
-                let chosen = sanitize(p);
-                trace_emit(format!("selected source=config raw={:?} sanitized={:?}", p, chosen));
-                return (chosen, sep, PrefixSource::Config);
+            "config" => {
+                if let Some(p) = &cfg.prefix {
+                    let chosen = sanitize(p);
+                    trace_emit(format!(
+                        "selected source=config raw={:?} sanitized={:?}",
+                        p, chosen
+                    ));
+                    return (chosen, sep, PrefixSource::Config);
+                }
             }
-            "top_package" => if let Some(p) = &top_package {
-                let chosen = sanitize(p);
-                trace_emit(format!("selected source=top_package raw={:?} sanitized={:?}", p, chosen));
-                return (chosen, sep, PrefixSource::TopPackage);
+            "top_package" => {
+                if let Some(p) = &top_package {
+                    let chosen = sanitize(p);
+                    trace_emit(format!(
+                        "selected source=top_package raw={:?} sanitized={:?}",
+                        p, chosen
+                    ));
+                    return (chosen, sep, PrefixSource::TopPackage);
+                }
             }
-            "workspace" => if let Some(p) = &workspace_prefix {
-                let chosen = sanitize(p);
-                trace_emit(format!("selected source=workspace raw={:?} sanitized={:?}", p, chosen));
-                return (chosen, sep, PrefixSource::Workspace);
+            "workspace" => {
+                if let Some(p) = &workspace_prefix {
+                    let chosen = sanitize(p);
+                    trace_emit(format!(
+                        "selected source=workspace raw={:?} sanitized={:?}",
+                        p, chosen
+                    ));
+                    return (chosen, sep, PrefixSource::Workspace);
+                }
             }
-            "package" => if let Some(p) = &package_prefix {
-                let chosen = sanitize(p);
-                trace_emit(format!("selected source=package raw={:?} sanitized={:?}", p, chosen));
-                return (chosen, sep, PrefixSource::Package);
+            "package" => {
+                if let Some(p) = &package_prefix {
+                    let chosen = sanitize(p);
+                    trace_emit(format!(
+                        "selected source=package raw={:?} sanitized={:?}",
+                        p, chosen
+                    ));
+                    return (chosen, sep, PrefixSource::Package);
+                }
             }
             "crate" => {
                 let chosen = sanitize(&crate_name);
-                trace_emit(format!("selected source=crate raw={:?} sanitized={:?}", crate_name, chosen));
+                trace_emit(format!(
+                    "selected source=crate raw={:?} sanitized={:?}",
+                    crate_name, chosen
+                ));
                 return (chosen, sep, PrefixSource::Crate);
             }
             _ => trace_emit(format!("priority key {:?} is unknown and ignored", key)),
@@ -450,7 +502,10 @@ fn parse_attr_prefix(args: &Punctuated<Meta, Token![,]>) -> Option<String> {
     for a in args {
         if let Meta::NameValue(nv) = a {
             if nv.path.is_ident("prefix") {
-                if let Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &nv.value {
+                if let Expr::Lit(ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &nv.value
+                {
                     return Some(s.value());
                 }
             }
@@ -462,7 +517,9 @@ fn parse_attr_prefix(args: &Punctuated<Meta, Token![,]>) -> Option<String> {
 fn push_export_name(fn_item: &mut ItemFn, export: String) {
     // Add/override export_name
     fn_item.attrs.retain(|a| !a.path().is_ident("export_name"));
-    fn_item.attrs.push(syn::parse_quote!(#[export_name = #export]));
+    fn_item
+        .attrs
+        .push(syn::parse_quote!(#[export_name = #export]));
 }
 
 #[proc_macro]
@@ -539,9 +596,12 @@ pub fn symbaker(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     if !f.sig.generics.params.is_empty() {
-        return syn::Error::new_spanned(&f.sig.generics, "symbaker: generic functions not supported")
-            .to_compile_error()
-            .into();
+        return syn::Error::new_spanned(
+            &f.sig.generics,
+            "symbaker: generic functions not supported",
+        )
+        .to_compile_error()
+        .into();
     }
 
     let attr_prefix = parse_attr_prefix(&args);
@@ -610,8 +670,12 @@ pub fn symbaker_module(attr: TokenStream, item: TokenStream) -> TokenStream {
     for it in items.iter_mut() {
         if let syn::Item::Fn(f) = it {
             let rust_name = f.sig.ident.to_string();
-            if !module_rules.should_prefix(&module_name, &rust_name) { continue; }
-            if !f.sig.generics.params.is_empty() { continue; }
+            if !module_rules.should_prefix(&module_name, &rust_name) {
+                continue;
+            }
+            if !f.sig.generics.params.is_empty() {
+                continue;
+            }
 
             let export = module_rules.render_export_name(&prefix, &sep, &module_name, &rust_name);
             trace_emit(format!(

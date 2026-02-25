@@ -65,11 +65,16 @@ fn cargo_symdump_writes_sidecar_txt_next_to_nro() {
     assert!(status.success(), "fixture_app build failed");
 
     let artifact_root = fixture.join("target").join("debug");
-    let lib = newest_dynamic_lib(&artifact_root, "fixture_app")
-        .unwrap_or_else(|| panic!("could not find fixture dynamic library under {}", artifact_root.display()));
+    let lib = newest_dynamic_lib(&artifact_root, "fixture_app").unwrap_or_else(|| {
+        panic!(
+            "could not find fixture dynamic library under {}",
+            artifact_root.display()
+        )
+    });
 
     let nro = artifact_root.join("fixture_app_test.nro");
-    fs::copy(&lib, &nro).unwrap_or_else(|e| panic!("copy {} -> {}: {e}", lib.display(), nro.display()));
+    fs::copy(&lib, &nro)
+        .unwrap_or_else(|e| panic!("copy {} -> {}: {e}", lib.display(), nro.display()));
 
     let status = Command::new("cargo")
         .args(["run", "--bin", "cargo-symdump", "--", "dump"])
@@ -79,7 +84,11 @@ fn cargo_symdump_writes_sidecar_txt_next_to_nro() {
     assert!(status.success(), "cargo-symdump dump failed");
 
     let sidecar = artifact_root.join("fixture_app_test.nro.exports.txt");
-    assert!(sidecar.exists(), "missing sidecar file: {}", sidecar.display());
+    assert!(
+        sidecar.exists(),
+        "missing sidecar file: {}",
+        sidecar.display()
+    );
     let body = fs::read_to_string(&sidecar)
         .unwrap_or_else(|e| panic!("failed reading {}: {e}", sidecar.display()));
     assert!(
@@ -102,8 +111,12 @@ fn cargo_symdump_dump_accepts_folder_and_writes_sidecars_for_nros() {
     assert!(status.success(), "fixture_app build failed");
 
     let artifact_root = fixture.join("target").join("debug");
-    let lib = newest_dynamic_lib(&artifact_root, "fixture_app")
-        .unwrap_or_else(|| panic!("could not find fixture dynamic library under {}", artifact_root.display()));
+    let lib = newest_dynamic_lib(&artifact_root, "fixture_app").unwrap_or_else(|| {
+        panic!(
+            "could not find fixture dynamic library under {}",
+            artifact_root.display()
+        )
+    });
 
     let dump_root = unique_temp_dir("symdump_folder_mode");
     let sub_dir = dump_root.join("nested");
@@ -111,8 +124,10 @@ fn cargo_symdump_dump_accepts_folder_and_writes_sidecars_for_nros() {
 
     let nro_a = dump_root.join("alpha.nro");
     let nro_b = sub_dir.join("beta.nro");
-    fs::copy(&lib, &nro_a).unwrap_or_else(|e| panic!("copy {} -> {}: {e}", lib.display(), nro_a.display()));
-    fs::copy(&lib, &nro_b).unwrap_or_else(|e| panic!("copy {} -> {}: {e}", lib.display(), nro_b.display()));
+    fs::copy(&lib, &nro_a)
+        .unwrap_or_else(|e| panic!("copy {} -> {}: {e}", lib.display(), nro_a.display()));
+    fs::copy(&lib, &nro_b)
+        .unwrap_or_else(|e| panic!("copy {} -> {}: {e}", lib.display(), nro_b.display()));
 
     let status = Command::new("cargo")
         .args(["run", "--bin", "cargo-symdump", "--", "dump"])
@@ -133,11 +148,23 @@ fn cargo_symdump_dump_accepts_folder_and_writes_sidecars_for_nros() {
 
     let sidecar_a = dump_root.join("alpha.nro.exports.txt");
     let sidecar_b = sub_dir.join("beta.nro.exports.txt");
-    assert!(sidecar_a.exists(), "missing sidecar file: {}", sidecar_a.display());
-    assert!(sidecar_b.exists(), "missing sidecar file: {}", sidecar_b.display());
+    assert!(
+        sidecar_a.exists(),
+        "missing sidecar file: {}",
+        sidecar_a.display()
+    );
+    assert!(
+        sidecar_b.exists(),
+        "missing sidecar file: {}",
+        sidecar_b.display()
+    );
 
     let dup_log = root.join(".symbaker").join("duplicates.log");
-    assert!(dup_log.exists(), "missing duplicate log: {}", dup_log.display());
+    assert!(
+        dup_log.exists(),
+        "missing duplicate log: {}",
+        dup_log.display()
+    );
     let dup_body =
         fs::read_to_string(&dup_log).unwrap_or_else(|e| panic!("read {}: {e}", dup_log.display()));
     assert!(

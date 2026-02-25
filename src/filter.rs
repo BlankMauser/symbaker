@@ -20,7 +20,11 @@ fn parse_csv(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn validate_globs(specs: &[String], value_span: &Expr, kind: &str) -> Result<Vec<String>, syn::Error> {
+fn validate_globs(
+    specs: &[String],
+    value_span: &Expr,
+    kind: &str,
+) -> Result<Vec<String>, syn::Error> {
     for g in specs {
         if g.contains('[') || g.contains(']') || g.contains('{') || g.contains('}') {
             return Err(syn::Error::new_spanned(
@@ -40,7 +44,10 @@ fn compile_regexes(
     let mut out = Vec::new();
     for r in specs {
         out.push(Regex::new(r).map_err(|e| {
-            syn::Error::new_spanned(value_span, format!("symbaker_module: invalid {kind} regex '{r}': {e}"))
+            syn::Error::new_spanned(
+                value_span,
+                format!("symbaker_module: invalid {kind} regex '{r}': {e}"),
+            )
         })?);
     }
     Ok(out)
@@ -58,7 +65,10 @@ pub fn parse_module_rules(args: &Punctuated<Meta, Token![,]>) -> Result<ModuleRu
             let Some(key) = nv.path.get_ident().map(|i| i.to_string()) else {
                 continue;
             };
-            if let Expr::Lit(ExprLit { lit: Lit::Str(s), .. }) = &nv.value {
+            if let Expr::Lit(ExprLit {
+                lit: Lit::Str(s), ..
+            }) = &nv.value
+            {
                 let v = s.value();
                 match key.as_str() {
                     "include_regex" => include_regex_src.extend(parse_csv(&v)),
@@ -75,12 +85,24 @@ pub fn parse_module_rules(args: &Punctuated<Meta, Token![,]>) -> Result<ModuleRu
 
     for a in args {
         if let Meta::NameValue(nv) = a {
-            let key = nv.path.get_ident().map(|i| i.to_string()).unwrap_or_default();
+            let key = nv
+                .path
+                .get_ident()
+                .map(|i| i.to_string())
+                .unwrap_or_default();
             match key.as_str() {
-                "include_regex" => out.include_regex = compile_regexes(&include_regex_src, &nv.value, "include")?,
-                "exclude_regex" => out.exclude_regex = compile_regexes(&exclude_regex_src, &nv.value, "exclude")?,
-                "include_glob" => out.include_glob = validate_globs(&include_glob_src, &nv.value, "include")?,
-                "exclude_glob" => out.exclude_glob = validate_globs(&exclude_glob_src, &nv.value, "exclude")?,
+                "include_regex" => {
+                    out.include_regex = compile_regexes(&include_regex_src, &nv.value, "include")?
+                }
+                "exclude_regex" => {
+                    out.exclude_regex = compile_regexes(&exclude_regex_src, &nv.value, "exclude")?
+                }
+                "include_glob" => {
+                    out.include_glob = validate_globs(&include_glob_src, &nv.value, "include")?
+                }
+                "exclude_glob" => {
+                    out.exclude_glob = validate_globs(&exclude_glob_src, &nv.value, "exclude")?
+                }
                 _ => {}
             }
         }

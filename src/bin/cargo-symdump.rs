@@ -1,16 +1,18 @@
+use serde::Serialize;
+use serde_json::Value;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::env;
 use std::ffi::OsString;
 use std::fs;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::{Command, ExitCode};
-use serde::Serialize;
-use serde_json::Value;
 
 #[path = "../out.rs"]
 mod out;
 
 const DEFAULT_REPO: &str = "https://github.com/BlankMauser/symbaker";
+const INSTALLER_MARKER_FILE: &str = "cargo-symdump-installer.toml";
+const INSTALLER_VERSION: &str = "1";
 
 fn usage() {
     eprintln!("cargo-symdump: build then dump exported symbols from newest .nro");
@@ -75,11 +77,59 @@ fn resolve_repo_arg(raw: &str) -> (String, Option<String>) {
     let is_hex = !raw.is_empty()
         && raw.len() >= 7
         && raw.len() <= 40
-        && raw.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F'));
+        && raw
+            .bytes()
+            .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F'));
     if is_hex {
         return (DEFAULT_REPO.to_string(), Some(raw.to_string()));
     }
     (raw.to_string(), None)
+}
+
+fn installer_marker_path(install_root: Option<&PathBuf>) -> Result<PathBuf, String> {
+    if let Some(root) = install_root {
+        return Ok(root.join("bin").join(INSTALLER_MARKER_FILE));
+    }
+    let exe = env::current_exe().map_err(|e| format!("current_exe: {e}"))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| "could not resolve cargo-symdump.exe parent dir".to_string())?;
+    Ok(dir.join(INSTALLER_MARKER_FILE))
+}
+
+fn read_installer_marker_version(path: &PathBuf) -> Option<String> {
+    let body = fs::read_to_string(path).ok()?;
+    let parsed: toml::Value = toml::from_str(&body).ok()?;
+    parsed
+        .get("installer_version")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+}
+
+fn write_installer_marker(path: &PathBuf) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+    }
+    let body = format!("installer_version = \"{}\"\n", INSTALLER_VERSION);
+    fs::write(path, body).map_err(|e| format!("write {}: {e}", path.display()))
+}
+
+fn installer_force_install_cmd(
+    repo: &str,
+    rev: Option<&str>,
+    install_root: Option<&PathBuf>,
+) -> String {
+    let mut cmd = format!(
+        "cargo install --git {} --bin cargo-symdump-installer --force",
+        repo
+    );
+    if let Some(rev) = rev {
+        cmd.push_str(&format!(" --rev {}", rev));
+    }
+    if let Some(root) = install_root {
+        cmd.push_str(&format!(" --root {}", root.display()));
+    }
+    cmd
 }
 
 fn target_dir_from_args(args: &[OsString]) -> PathBuf {
@@ -242,7 +292,8 @@ fn metadata_tree(args: &[OsString]) -> Result<HashMap<String, Vec<String>>, Stri
     if !out.status.success() {
         return Ok(HashMap::new());
     }
-    let parsed: Value = serde_json::from_slice(&out.stdout).map_err(|e| format!("parse metadata json: {e}"))?;
+    let parsed: Value =
+        serde_json::from_slice(&out.stdout).map_err(|e| format!("parse metadata json: {e}"))?;
 
     let mut id_to_name = HashMap::<String, String>::new();
     if let Some(packages) = parsed.get("packages").and_then(|v| v.as_array()) {
@@ -256,10 +307,16 @@ fn metadata_tree(args: &[OsString]) -> Result<HashMap<String, Vec<String>>, Stri
     }
 
     let mut deps_by_name = HashMap::<String, Vec<String>>::new();
-    if let Some(nodes) = parsed.get("resolve").and_then(|r| r.get("nodes")).and_then(|v| v.as_array()) {
+    if let Some(nodes) = parsed
+        .get("resolve")
+        .and_then(|r| r.get("nodes"))
+        .and_then(|v| v.as_array())
+    {
         for n in nodes {
             let id = n.get("id").and_then(|v| v.as_str()).unwrap_or_default();
-            let Some(name) = id_to_name.get(id).cloned() else { continue };
+            let Some(name) = id_to_name.get(id).cloned() else {
+                continue;
+            };
             let mut deps = Vec::<String>::new();
             if let Some(d) = n.get("deps").and_then(|v| v.as_array()) {
                 for dep in d {
@@ -279,7 +336,11 @@ fn metadata_tree(args: &[OsString]) -> Result<HashMap<String, Vec<String>>, Stri
     Ok(deps_by_name)
 }
 
-fn write_resolution_report(workspace_root: &PathBuf, args: &[OsString], trace_file: &PathBuf) -> Result<PathBuf, String> {
+fn write_resolution_report(
+    workspace_root: &PathBuf,
+    args: &[OsString],
+    trace_file: &PathBuf,
+) -> Result<PathBuf, String> {
     if !trace_file.exists() {
         return Err(format!("trace file missing: {}", trace_file.display()));
     }
@@ -321,7 +382,8 @@ fn write_resolution_report(workspace_root: &PathBuf, args: &[OsString], trace_fi
 
     let out_dir = symbaker_output_dir(workspace_root)?;
     let out_path = out_dir.join("resolution.toml");
-    let encoded = toml::to_string_pretty(&report).map_err(|e| format!("encode report toml: {e}"))?;
+    let encoded =
+        toml::to_string_pretty(&report).map_err(|e| format!("encode report toml: {e}"))?;
     fs::write(&out_path, encoded).map_err(|e| format!("write {}: {e}", out_path.display()))?;
     Ok(out_path)
 }
@@ -368,7 +430,7 @@ fn run_init(args: Vec<OsString>) -> Result<(), String> {
         if let Some(p) = prefix {
             body.push_str(&format!("prefix = \"{}\"\n", p));
         } else {
-        body.push_str("# prefix = \"hdr\"\n");
+            body.push_str("# prefix = \"hdr\"\n");
         }
         body.push_str("sep = \"__\"\n");
         body.push_str("priority = [\"attr\", \"env_prefix\", \"config\", \"top_package\", \"workspace\", \"package\", \"crate\"]\n");
@@ -380,11 +442,13 @@ fn run_init(args: Vec<OsString>) -> Result<(), String> {
         println!("kept existing {}", cfg_path.display());
     }
 
-    fs::create_dir_all(&cargo_cfg_dir).map_err(|e| format!("mkdir {}: {e}", cargo_cfg_dir.display()))?;
+    fs::create_dir_all(&cargo_cfg_dir)
+        .map_err(|e| format!("mkdir {}: {e}", cargo_cfg_dir.display()))?;
     let mut doc = if cargo_cfg_path.exists() {
         let text = fs::read_to_string(&cargo_cfg_path)
             .map_err(|e| format!("read {}: {e}", cargo_cfg_path.display()))?;
-        toml::from_str::<toml::Value>(&text).unwrap_or_else(|_| toml::Value::Table(Default::default()))
+        toml::from_str::<toml::Value>(&text)
+            .unwrap_or_else(|_| toml::Value::Table(Default::default()))
     } else {
         toml::Value::Table(Default::default())
     };
@@ -411,7 +475,10 @@ fn run_init(args: Vec<OsString>) -> Result<(), String> {
             );
         }
         None => {
-            env_tbl.insert("SYMBAKER_CONFIG".to_string(), toml::Value::String(cfg_value));
+            env_tbl.insert(
+                "SYMBAKER_CONFIG".to_string(),
+                toml::Value::String(cfg_value),
+            );
             println!(
                 "added [env].SYMBAKER_CONFIG to {}",
                 cargo_cfg_path.display()
@@ -478,7 +545,8 @@ fn run_init(args: Vec<OsString>) -> Result<(), String> {
 
     let encoded = toml::to_string_pretty(&doc)
         .map_err(|e| format!("encode {}: {e}", cargo_cfg_path.display()))?;
-    fs::write(&cargo_cfg_path, encoded).map_err(|e| format!("write {}: {e}", cargo_cfg_path.display()))?;
+    fs::write(&cargo_cfg_path, encoded)
+        .map_err(|e| format!("write {}: {e}", cargo_cfg_path.display()))?;
     println!("updated {}", cargo_cfg_path.display());
     println!("output dir: {}", out_dir.display());
     println!("symbaker init complete");
@@ -544,7 +612,9 @@ fn run_build_then_dump(mut args: Vec<OsString>) -> Result<(), String> {
     let mut build = Command::new("cargo");
     build.args(&args);
     apply_symbaker_env(&mut build, &args, &workspace_root, trace_enabled);
-    let status = build.status().map_err(|e| format!("failed to run cargo build: {e}"))?;
+    let status = build
+        .status()
+        .map_err(|e| format!("failed to run cargo build: {e}"))?;
     if !status.success() {
         return Err(format!("cargo {:?} failed", args));
     }
@@ -592,7 +662,9 @@ fn run_wrapped_cargo(mut args: Vec<OsString>) -> Result<(), String> {
     let mut cmd = Command::new("cargo");
     cmd.args(&args);
     apply_symbaker_env(&mut cmd, &args, &workspace_root, trace_enabled);
-    let status = cmd.status().map_err(|e| format!("failed to run cargo: {e}"))?;
+    let status = cmd
+        .status()
+        .map_err(|e| format!("failed to run cargo: {e}"))?;
     if !status.success() {
         return Err(format!("cargo {:?} failed", args));
     }
@@ -630,13 +702,19 @@ fn collect_nro_files(dir: &PathBuf) -> Result<Vec<PathBuf>, String> {
 
 fn resolve_dump_inputs(paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, String> {
     if paths.is_empty() {
-        return Err("usage: cargo symdump dump <path/to/file.nro|path/to/folder> [more paths...]".to_string());
+        return Err(
+            "usage: cargo symdump dump <path/to/file.nro|path/to/folder> [more paths...]"
+                .to_string(),
+        );
     }
 
     let mut files = Vec::<PathBuf>::new();
     for path in paths {
-        let canon = path.canonicalize().map_err(|e| format!("{}: {e}", path.display()))?;
-        let meta = fs::metadata(&canon).map_err(|e| format!("metadata {}: {e}", canon.display()))?;
+        let canon = path
+            .canonicalize()
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let meta =
+            fs::metadata(&canon).map_err(|e| format!("metadata {}: {e}", canon.display()))?;
         if meta.is_dir() {
             files.extend(collect_nro_files(&canon)?);
         } else if meta.is_file() {
@@ -723,7 +801,10 @@ fn run_dump_many(paths: Vec<PathBuf>) -> Result<(), String> {
 
     let duplicates = find_duplicate_symbols(&exports_by_file);
     if duplicates.is_empty() {
-        println!("duplicate symbols: none (checked {} artifact(s))", exports_by_file.len());
+        println!(
+            "duplicate symbols: none (checked {} artifact(s))",
+            exports_by_file.len()
+        );
         return Ok(());
     }
 
@@ -778,72 +859,20 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
         i += 1;
     }
 
-    if cfg!(windows) {
-        let exe = env::current_exe()
-            .map_err(|e| format!("current_exe: {e}"))?;
-        let exe_dir = exe
-            .parent()
-            .ok_or_else(|| "could not resolve cargo-symdump.exe parent dir".to_string())?;
-        let installer = exe_dir.join("cargo-symdump-installer.exe");
-        if !installer.exists() {
-            let (repo, rev) = resolve_repo_arg(&repo_arg);
-            let mut install_args = vec![
-                OsString::from("install"),
-                OsString::from("--git"),
-                OsString::from(repo.clone()),
-                OsString::from("--bin"),
-                OsString::from("cargo-symdump-installer"),
-                OsString::from("--force"),
-            ];
-            if let Some(rev) = rev {
-                install_args.push(OsString::from("--rev"));
-                install_args.push(OsString::from(rev));
-            }
-            if let Some(root) = &install_root {
-                install_args.push(OsString::from("--root"));
-                install_args.push(root.clone().into_os_string());
-            }
-            let status = Command::new("cargo")
-                .args(&install_args)
-                .status()
-                .map_err(|e| format!("failed to bootstrap installer: {e}"))?;
-            if !status.success() {
-                return Err("failed to bootstrap cargo-symdump-installer".to_string());
-            }
-            if !installer.exists() {
-                return Err(format!(
-                    "installer still missing after bootstrap: {}",
-                    installer.display()
-                ));
-            }
-        }
-
-        let mut cmd = Command::new(installer);
-        cmd.arg("--wait-pid");
-        cmd.arg(std::process::id().to_string());
-        cmd.arg("--repo");
-        cmd.arg(repo_arg.clone());
-        if let Some(root) = &install_root {
-            cmd.arg("--path");
-            cmd.arg(root);
-        }
-
-        cmd.spawn()
-            .map_err(|e| format!("failed to launch installer: {e}"))?;
-        println!("launched cargo-symdump installer from: {}", exe_dir.display());
-        println!("waiting for update output in this terminal...");
-        return Ok(());
+    let (repo, rev) = resolve_repo_arg(&repo_arg);
+    let marker_path = installer_marker_path(install_root.as_ref())?;
+    let marker_version = read_installer_marker_version(&marker_path);
+    if marker_version.as_deref() != Some(INSTALLER_VERSION) {
+        let cmd = installer_force_install_cmd(&repo, rev.as_deref(), install_root.as_ref());
+        eprintln!("WARNING: Installer outdated, update using \"{}\"", cmd);
     }
 
-    let (repo, rev) = resolve_repo_arg(&repo_arg);
     let mut install_args = vec![
         OsString::from("install"),
         OsString::from("--git"),
         OsString::from(repo.clone()),
         OsString::from("--bin"),
         OsString::from("cargo-symdump"),
-        OsString::from("--bin"),
-        OsString::from("cargo-symdump-installer"),
         OsString::from("--force"),
     ];
     if let Some(rev) = rev {
@@ -861,6 +890,14 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
         .map_err(|e| format!("failed to run cargo install: {e}"))?;
     if !status.success() {
         return Err(format!("cargo install failed for repo: {repo}"));
+    }
+
+    if let Err(e) = write_installer_marker(&marker_path) {
+        eprintln!(
+            "warning: updated cargo-symdump but could not write installer marker {}: {}",
+            marker_path.display(),
+            e
+        );
     }
 
     println!("updated cargo-symdump from: {repo}");
@@ -883,7 +920,10 @@ fn main() -> ExitCode {
 
     let result = if args[0] == "dump" {
         if args.len() < 2 {
-            Err("usage: cargo symdump dump <path/to/file.nro|path/to/folder> [more paths...]".to_string())
+            Err(
+                "usage: cargo symdump dump <path/to/file.nro|path/to/folder> [more paths...]"
+                    .to_string(),
+            )
         } else {
             run_dump_many(args.into_iter().skip(1).map(PathBuf::from).collect())
         }
