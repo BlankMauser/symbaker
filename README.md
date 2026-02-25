@@ -122,7 +122,7 @@ prefer_package_prefix = true
 Notes:
 
 - `prefer_package_prefix = true` makes that crate ignore inherited top-level prefix and keep its own.
-- Without that flag, inherited top-level prefix is used first by default.
+- Without that flag top-level prefix is used first by default.
 
 ## Cargo Symdump
 
