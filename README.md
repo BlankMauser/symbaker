@@ -64,18 +64,11 @@ This creates:
   - `SYMBAKER_ENFORCE_INHERIT=1`
   - `SYMBAKER_INITIALIZED=1`
 
-`cargo symdump init` does not overwrite existing `[env]` keys in `.cargo/config.toml`; it only adds missing symbaker keys.
-
 Verify outputs:
 
 - `.symbaker/sym.log`
 - `.symbaker/resolution.toml`
 - `.symbaker/trace.log` (when trace enabled)
-
-For team-wide deterministic behavior, commit:
-
-- `symbaker.toml`
-- `.cargo/config.toml`
 
 Optional hard guard in downstream crates (`build.rs`):
 
@@ -124,8 +117,6 @@ priority = ["attr", "env_prefix", "config", "top_package", "workspace", "package
 
 ## Troubleshooting and reconfiguration
 
-Symptom: dependency prefixes appear in final exports (for example `ssbusync__*` instead of `hdr__*`).
-
 1. Regenerate reports:
 
 ```bash
@@ -170,14 +161,7 @@ Build + dump:
 cargo symdump --release
 ```
 
-This runs cargo build, finds the newest `.nro`, and writes:
-
-- `<artifact>.nro.exports.txt`
-- `.symbaker/sym.log` (NRO format: `address type bind size name`)
-- `.symbaker/resolution.toml` (crate resolution + symbols + overrides template)
-- `.symbaker/trace.log` (when tracing enabled)
-
-Dump-only mode:
+This wraps cargo build and exports verify artifacts.
 
 ```bash
 cargo symdump dump path/to/file.nro

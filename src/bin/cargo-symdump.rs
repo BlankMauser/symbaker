@@ -6,8 +6,6 @@ use std::path::PathBuf;
 use std::process::{Command, ExitCode};
 use serde::Serialize;
 use serde_json::Value;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 
 #[path = "../out.rs"]
 mod out;
@@ -23,7 +21,7 @@ fn usage() {
     eprintln!("  cargo symdump [--trace] skyline build --release");
     eprintln!("  cargo symdump run [--trace] <cargo-subcommand...>");
     eprintln!("  cargo symdump dump <path/to/file.nro|path/to/folder> [more paths...]");
-    eprintln!("  cargo symdump update [--repo <git-url>] [--offline]");
+    eprintln!("  cargo symdump update [--repo <git-url|commit>] [--offline] [--path <dir>]");
     eprintln!("  outputs:");
     eprintln!("  - .symbaker/sym.log");
     eprintln!("  - .symbaker/resolution.toml (only with --trace)");
@@ -66,6 +64,22 @@ fn profile_from_args(args: &[OsString]) -> Option<String> {
         i += 1;
     }
     None
+}
+
+fn resolve_repo_arg(raw: &str) -> (String, Option<String>) {
+    if let Some((repo, rev)) = raw.rsplit_once('#') {
+        if !repo.is_empty() && !rev.is_empty() {
+            return (repo.to_string(), Some(rev.to_string()));
+        }
+    }
+    let is_hex = !raw.is_empty()
+        && raw.len() >= 7
+        && raw.len() <= 40
+        && raw.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F'));
+    if is_hex {
+        return (DEFAULT_REPO.to_string(), Some(raw.to_string()));
+    }
+    (raw.to_string(), None)
 }
 
 fn target_dir_from_args(args: &[OsString]) -> PathBuf {
@@ -734,19 +748,20 @@ fn run_dump_many(paths: Vec<PathBuf>) -> Result<(), String> {
 }
 
 fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
-    let mut repo = DEFAULT_REPO.to_string();
+    let mut repo_arg = DEFAULT_REPO.to_string();
     let mut offline = false;
+    let mut install_root = None::<PathBuf>;
     let mut i = 0usize;
     while i < args.len() {
         let cur = args[i].to_string_lossy();
         if cur == "--repo" && i + 1 < args.len() {
-            repo = args[i + 1].to_string_lossy().to_string();
+            repo_arg = args[i + 1].to_string_lossy().to_string();
             args.remove(i + 1);
             args.remove(i);
             continue;
         }
         if let Some(v) = cur.strip_prefix("--repo=") {
-            repo = v.to_string();
+            repo_arg = v.to_string();
             args.remove(i);
             continue;
         }
@@ -755,56 +770,75 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
             args.remove(i);
             continue;
         }
+        if cur == "--path" && i + 1 < args.len() {
+            install_root = Some(PathBuf::from(args[i + 1].clone()));
+            args.remove(i + 1);
+            args.remove(i);
+            continue;
+        }
+        if let Some(v) = cur.strip_prefix("--path=") {
+            install_root = Some(PathBuf::from(v.to_string()));
+            args.remove(i);
+            continue;
+        }
         i += 1;
     }
 
+    if cfg!(windows) {
+        let exe = env::current_exe()
+            .map_err(|e| format!("current_exe: {e}"))?;
+        let exe_dir = exe
+            .parent()
+            .ok_or_else(|| "could not resolve cargo-symdump.exe parent dir".to_string())?;
+        let installer = exe_dir.join("cargo-symdump-installer.exe");
+        if !installer.exists() {
+            return Err(format!(
+                "missing installer binary: {}",
+                installer.display()
+            ));
+        }
+
+        let mut cmd = Command::new(installer);
+        cmd.arg("--wait-pid");
+        cmd.arg(std::process::id().to_string());
+        cmd.arg("--repo");
+        cmd.arg(repo_arg.clone());
+        if offline {
+            cmd.arg("--offline");
+        }
+        if let Some(root) = &install_root {
+            cmd.arg("--path");
+            cmd.arg(root);
+        }
+
+        cmd.spawn()
+            .map_err(|e| format!("failed to launch installer: {e}"))?;
+        println!("launched cargo-symdump installer from: {}", exe_dir.display());
+        println!("waiting for update output in this terminal...");
+        return Ok(());
+    }
+
+    let (repo, rev) = resolve_repo_arg(&repo_arg);
     let mut install_args = vec![
         OsString::from("install"),
         OsString::from("--git"),
         OsString::from(repo.clone()),
         OsString::from("--bin"),
         OsString::from("cargo-symdump"),
+        OsString::from("--bin"),
+        OsString::from("cargo-symdump-installer"),
         OsString::from("--force"),
     ];
+    if let Some(rev) = rev {
+        install_args.push(OsString::from("--rev"));
+        install_args.push(OsString::from(rev));
+    }
     if offline {
         install_args.push(OsString::from("--offline"));
     }
-
-    if cfg!(windows) {
-        let repo_ps = repo.replace('\'', "''");
-        let pid = std::process::id();
-        let mut script = format!(
-            "$ErrorActionPreference='Stop'; Wait-Process -Id {}; cargo install --git '{}' --bin cargo-symdump --force",
-            pid, repo_ps
-        );
-        if offline {
-            script.push_str(" --offline");
-        }
-        script.push_str("; Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force");
-
-        let mut script_path = env::temp_dir();
-        script_path.push(format!("cargo-symdump-update-{}.ps1", pid));
-        fs::write(&script_path, script)
-            .map_err(|e| format!("write {}: {e}", script_path.display()))?;
-
-        let mut cmd = Command::new("powershell");
-        cmd.args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            &script_path.to_string_lossy(),
-        ]);
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        cmd.spawn()
-            .map_err(|e| format!("failed to schedule Windows self-update: {e}"))?;
-
-        println!("scheduled cargo-symdump update from: {repo}");
-        println!("close this command and rerun after a moment to use the updated binary");
-        if offline {
-            println!("mode: offline");
-        }
-        return Ok(());
+    if let Some(root) = &install_root {
+        install_args.push(OsString::from("--root"));
+        install_args.push(root.clone().into_os_string());
     }
 
     let status = Command::new("cargo")
