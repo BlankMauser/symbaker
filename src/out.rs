@@ -4,6 +4,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+const DT_NULL: u64 = 0;
+const DT_STRTAB: u64 = 5;
+const DT_SYMTAB: u64 = 6;
+const DT_STRSZ: u64 = 10;
+
 fn find_flag_value(args: &[OsString], flag: &str) -> Option<PathBuf> {
     let mut i = 0usize;
     while i < args.len() {
@@ -61,7 +66,7 @@ pub fn discover_top_package_name(args: &[OsString]) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-pub fn newest_nro(target_dir: &Path, profile: Option<&str>) -> Result<PathBuf, String> {
+pub fn all_nros(target_dir: &Path, profile: Option<&str>) -> Result<Vec<PathBuf>, String> {
     if !target_dir.exists() {
         return Err(format!(
             "target dir does not exist: {}",
@@ -69,7 +74,7 @@ pub fn newest_nro(target_dir: &Path, profile: Option<&str>) -> Result<PathBuf, S
         ));
     }
 
-    let mut best: Option<(PathBuf, std::time::SystemTime)> = None;
+    let mut out = Vec::<PathBuf>::new();
     let mut stack = vec![target_dir.to_path_buf()];
 
     while let Some(dir) = stack.pop() {
@@ -84,7 +89,7 @@ pub fn newest_nro(target_dir: &Path, profile: Option<&str>) -> Result<PathBuf, S
                 stack.push(path);
                 continue;
             }
-            if path.extension().and_then(|s| s.to_str()) != Some("nro") {
+            if !has_nro_extension(&path) {
                 continue;
             }
             if let Some(p) = profile {
@@ -93,18 +98,18 @@ pub fn newest_nro(target_dir: &Path, profile: Option<&str>) -> Result<PathBuf, S
                     continue;
                 }
             }
-            let mtime = meta
-                .modified()
-                .map_err(|e| format!("modified {}: {e}", path.display()))?;
-            match &best {
-                Some((_, t)) if *t >= mtime => {}
-                _ => best = Some((path, mtime)),
-            }
+            out.push(path);
         }
     }
 
-    best.map(|(p, _)| p)
-        .ok_or_else(|| format!("no .nro files found under {}", target_dir.display()))
+    out.sort();
+    if out.is_empty() {
+        return Err(format!(
+            "no .nro files found under {}",
+            target_dir.display()
+        ));
+    }
+    Ok(out)
 }
 
 fn pick_nm() -> Option<String> {
@@ -173,6 +178,13 @@ fn parse_objdump_exports(text: &str) -> Vec<String> {
         }
     }
     symbols
+}
+
+fn has_nro_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.eq_ignore_ascii_case("nro"))
+        .unwrap_or(false)
 }
 
 fn read_u32_le(bytes: &[u8], off: usize) -> Option<u32> {
@@ -248,52 +260,117 @@ fn read_u16_le(bytes: &[u8], off: usize) -> Option<u16> {
 
 fn parse_nro_symbols(path: &Path) -> Result<Vec<NroSymbol>, String> {
     let data = fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    let header = 0x10usize;
     let magic = data
-        .get(header..header + 4)
+        .get(0x10..0x14)
         .ok_or_else(|| "short file".to_string())?;
     if magic != b"NRO0" {
         return Ok(Vec::new());
     }
 
-    let dynstr_off =
-        read_u32_le(&data, header + 0x70).ok_or_else(|| "invalid dynstr off".to_string())? as usize;
-    let dynstr_size = read_u32_le(&data, header + 0x74)
-        .ok_or_else(|| "invalid dynstr size".to_string())? as usize;
-    let dynsym_off =
-        read_u32_le(&data, header + 0x78).ok_or_else(|| "invalid dynsym off".to_string())? as usize;
+    // NRO section descriptors match the nxo64 loader layout:
+    // tloc/tsize @ 0x20, rloc/rsize @ 0x28, dloc/dsize @ 0x30.
+    let tloc = read_u32_le(&data, 0x20).ok_or_else(|| "invalid text offset".to_string())? as usize;
+    let tsize = read_u32_le(&data, 0x24).ok_or_else(|| "invalid text size".to_string())? as usize;
+    let rloc = read_u32_le(&data, 0x28).ok_or_else(|| "invalid ro offset".to_string())? as usize;
+    let rsize = read_u32_le(&data, 0x2c).ok_or_else(|| "invalid ro size".to_string())? as usize;
+    let dloc = read_u32_le(&data, 0x30).ok_or_else(|| "invalid data offset".to_string())? as usize;
+    let dsize = read_u32_le(&data, 0x34).ok_or_else(|| "invalid data size".to_string())? as usize;
 
-    if dynstr_size == 0 || dynstr_off >= data.len() || dynsym_off >= data.len() {
+    let text_end = tloc.saturating_add(tsize);
+    let ro_end = rloc.saturating_add(rsize);
+    let data_end = dloc.saturating_add(dsize);
+    if text_end > data.len() || ro_end > data.len() || data_end > data.len() {
         return Ok(Vec::new());
     }
-    let dynstr_end = dynstr_off.saturating_add(dynstr_size).min(data.len());
-    if dynstr_end <= dynstr_off || dynstr_off <= dynsym_off {
+
+    let text = &data[tloc..text_end];
+    let ro = &data[rloc..ro_end];
+    let dataseg = &data[dloc..data_end];
+
+    let mut full = Vec::<u8>::new();
+    full.extend_from_slice(text);
+    if rloc > full.len() {
+        full.resize(rloc, 0);
+    } else if rloc < full.len() {
+        full.truncate(rloc);
+    }
+    full.extend_from_slice(ro);
+    if dloc > full.len() {
+        full.resize(dloc, 0);
+    } else if dloc < full.len() {
+        full.truncate(dloc);
+    }
+    full.extend_from_slice(dataseg);
+
+    let modoff = read_u32_le(&full, 4).ok_or_else(|| "missing MOD0 offset".to_string())? as usize;
+    let mod_magic = full
+        .get(modoff..modoff.saturating_add(4))
+        .ok_or_else(|| "invalid MOD0 offset".to_string())?;
+    if mod_magic != b"MOD0" {
+        return Ok(Vec::new());
+    }
+
+    let dynamic_rel = read_u32_le(&full, modoff + 4)
+        .ok_or_else(|| "invalid dynamic offset".to_string())? as usize;
+    let dynamic_off = modoff.saturating_add(dynamic_rel);
+    if dynamic_off >= full.len() {
+        return Ok(Vec::new());
+    }
+
+    let mut strtab = None::<usize>;
+    let mut strsz = None::<usize>;
+    let mut symtab = None::<usize>;
+    let mut off = dynamic_off;
+    while off.saturating_add(16) <= full.len() {
+        let tag = read_u64_le(&full, off).unwrap_or(DT_NULL);
+        let val = read_u64_le(&full, off + 8).unwrap_or(0);
+        off += 16;
+        if tag == DT_NULL {
+            break;
+        }
+        match tag {
+            DT_STRTAB => strtab = Some(val as usize),
+            DT_STRSZ => strsz = Some(val as usize),
+            DT_SYMTAB => symtab = Some(val as usize),
+            _ => {}
+        }
+    }
+
+    let (dynstr_off, dynstr_size, dynsym_off) = match (strtab, strsz, symtab) {
+        (Some(a), Some(b), Some(c)) => (a, b, c),
+        _ => return Ok(Vec::new()),
+    };
+
+    if dynstr_size == 0
+        || dynstr_off >= full.len()
+        || dynsym_off >= full.len()
+        || dynsym_off >= dynstr_off
+    {
+        return Ok(Vec::new());
+    }
+    let dynstr_end = dynstr_off.saturating_add(dynstr_size).min(full.len());
+    if dynstr_end <= dynstr_off {
         return Ok(Vec::new());
     }
 
     let entry_size = 24usize;
-    let dynsym_end = dynstr_off;
-    let count = (dynsym_end - dynsym_off) / entry_size;
-    if count == 0 {
-        return Ok(Vec::new());
-    }
-
+    let count = (dynstr_off - dynsym_off) / entry_size;
     let mut out = Vec::<NroSymbol>::new();
     for i in 0..count {
         let base = dynsym_off + i * entry_size;
-        let name_idx = read_u32_le(&data, base).unwrap_or(0) as usize;
+        let name_idx = read_u32_le(&full, base).unwrap_or(0) as usize;
         if name_idx == 0 {
             continue;
         }
-        let st_info = data.get(base + 4).copied().unwrap_or(0);
-        let st_shndx = read_u16_le(&data, base + 6).unwrap_or(0);
-        let st_value = read_u64_le(&data, base + 8).unwrap_or(0);
-        let st_size = read_u64_le(&data, base + 16).unwrap_or(0);
+        let st_info = full.get(base + 4).copied().unwrap_or(0);
+        let st_shndx = read_u16_le(&full, base + 6).unwrap_or(0);
+        let st_value = read_u64_le(&full, base + 8).unwrap_or(0);
+        let st_size = read_u64_le(&full, base + 16).unwrap_or(0);
         if st_shndx == 0 {
             continue;
         }
         let name_off = dynstr_off.saturating_add(name_idx);
-        if let Some(name) = cstr_at(&data, name_off, dynstr_end) {
+        if let Some(name) = cstr_at(&full, name_off, dynstr_end) {
             if !name.is_empty() {
                 out.push(NroSymbol {
                     name,

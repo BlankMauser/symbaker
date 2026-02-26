@@ -186,7 +186,7 @@ cargo install --git https://github.com/BlankMauser/symbaker --bin cargo-symdump-
 # pin update to a commit (or use <url>#<rev>)
 cargo symdump update --repo <commit-hash>
 
-# build + dump exported symbols from newest .nro
+# build + dump exported symbols from produced .nro files
 cargo symdump --release
 
 # dump a specific .nro

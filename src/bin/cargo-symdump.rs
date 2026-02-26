@@ -15,7 +15,7 @@ const INSTALLER_MARKER_FILE: &str = "cargo-symdump-installer.toml";
 const INSTALLER_VERSION: &str = "1";
 
 fn usage() {
-    eprintln!("cargo-symdump: build then dump exported symbols from newest .nro");
+    eprintln!("cargo-symdump: build then dump exported symbols from produced .nro files");
     eprintln!("usage:");
     eprintln!("  cargo symdump init [--prefix <name>] [--force]");
     eprintln!("  cargo symdump [--trace] --release");
@@ -621,18 +621,54 @@ fn run_build_then_dump(mut args: Vec<OsString>) -> Result<(), String> {
 
     let target_dir = target_dir_from_args(&args);
     let profile = profile_from_args(&args);
-    let nro = out::newest_nro(&target_dir, profile.as_deref())?;
-    let out = out::write_exports_sidecar(&nro)?;
-    let sym_log = out::write_symbol_log(&nro, &out_dir.join("sym.log"))?;
+    let nros = out::all_nros(&target_dir, profile.as_deref())?;
+    let mut exports_by_file = Vec::<(PathBuf, Vec<String>)>::new();
+    for artifact in &nros {
+        let sidecar = out::write_exports_sidecar(artifact)?;
+        let symbols = out::exported_symbols(artifact)?;
+        println!("nro: {}", artifact.display());
+        println!("exports: {}", sidecar.display());
+        exports_by_file.push((artifact.clone(), symbols));
+    }
+
+    let sym_log_path = out_dir.join("sym.log");
+    if exports_by_file.len() == 1 {
+        let sym_log = out::write_symbol_log(&exports_by_file[0].0, &sym_log_path)?;
+        println!("sym.log: {}", sym_log.display());
+    } else {
+        write_batch_sym_log(&exports_by_file, &sym_log_path)?;
+        println!("sym.log: {}", sym_log_path.display());
+    }
     let resolution = if trace_enabled {
         write_resolution_report(&workspace_root, &args, &trace_file).ok()
     } else {
         None
     };
-
-    println!("nro: {}", nro.display());
-    println!("exports: {}", out.display());
-    println!("sym.log: {}", sym_log.display());
+    let duplicates = find_duplicate_symbols(&exports_by_file);
+    if duplicates.is_empty() {
+        println!(
+            "duplicate symbols: none (checked {} artifact(s))",
+            exports_by_file.len()
+        );
+    } else {
+        let dup_log = out_dir.join("duplicates.log");
+        let mut dup_body = String::new();
+        dup_body.push_str("# symbaker duplicates.log\n");
+        dup_body.push_str("# format: symbol followed by files exporting it\n");
+        for (symbol, files) in &duplicates {
+            dup_body.push_str(&format!("\n{symbol}\n"));
+            for file in files {
+                dup_body.push_str(&format!("  {}\n", file.display()));
+            }
+        }
+        fs::write(&dup_log, dup_body).map_err(|e| format!("write {}: {e}", dup_log.display()))?;
+        println!("duplicates: {}", dup_log.display());
+        println!(
+            "found {} duplicated symbol(s) across {} artifact(s)",
+            duplicates.len(),
+            exports_by_file.len()
+        );
+    }
     if let Some(report) = resolution {
         println!("resolution: {}", report.display());
     }
@@ -691,7 +727,12 @@ fn collect_nro_files(dir: &PathBuf) -> Result<Vec<PathBuf>, String> {
                 stack.push(path);
                 continue;
             }
-            if path.extension().and_then(|s| s.to_str()) == Some("nro") {
+            if path
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|s| s.eq_ignore_ascii_case("nro"))
+                .unwrap_or(false)
+            {
                 found.push(path);
             }
         }
@@ -862,9 +903,11 @@ fn run_update(mut args: Vec<OsString>) -> Result<(), String> {
     let (repo, rev) = resolve_repo_arg(&repo_arg);
     let marker_path = installer_marker_path(install_root.as_ref())?;
     let marker_version = read_installer_marker_version(&marker_path);
-    if marker_version.as_deref() != Some(INSTALLER_VERSION) {
-        let cmd = installer_force_install_cmd(&repo, rev.as_deref(), install_root.as_ref());
-        eprintln!("WARNING: Installer outdated, update using \"{}\"", cmd);
+    if let Some(found) = marker_version.as_deref() {
+        if found != INSTALLER_VERSION {
+            let cmd = installer_force_install_cmd(&repo, rev.as_deref(), install_root.as_ref());
+            eprintln!("WARNING: Installer outdated, update using \"{}\"", cmd);
+        }
     }
 
     let mut install_args = vec![
