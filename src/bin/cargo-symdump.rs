@@ -444,6 +444,34 @@ fn run_init(args: Vec<OsString>) -> Result<(), String> {
 
     fs::create_dir_all(&cargo_cfg_dir)
         .map_err(|e| format!("mkdir {}: {e}", cargo_cfg_dir.display()))?;
+
+    let cfg_value = cfg_path.to_string_lossy().to_string();
+    if !cargo_cfg_path.exists() {
+        let mut body = String::new();
+        body.push_str("# symbaker env config\n");
+        body.push_str("# SYMBAKER_CONFIG: path to symbaker.toml\n");
+        body.push_str("# SYMBAKER_REQUIRE_CONFIG: 1 => error if SYMBAKER_CONFIG is missing\n");
+        body.push_str(
+            "# SYMBAKER_ENFORCE_INHERIT: 1 => error if dependancy takes over symbaker\n",
+        );
+        body.push_str(
+            "# SYMBAKER_INITIALIZED: 1 => marks setup complete (removes uninitialized warning)\n",
+        );
+        body.push_str("\n[env]\n");
+        let cfg_literal = cfg_value.replace('\'', "''");
+        body.push_str(&format!("SYMBAKER_CONFIG = '{}'\n", cfg_literal));
+        body.push_str("SYMBAKER_REQUIRE_CONFIG = \"1\"\n");
+        body.push_str("SYMBAKER_ENFORCE_INHERIT = \"1\"\n");
+        body.push_str("SYMBAKER_INITIALIZED = \"1\"\n");
+        fs::write(&cargo_cfg_path, body)
+            .map_err(|e| format!("write {}: {e}", cargo_cfg_path.display()))?;
+        println!("wrote {}", cargo_cfg_path.display());
+        println!("updated {}", cargo_cfg_path.display());
+        println!("output dir: {}", out_dir.display());
+        println!("symbaker init complete");
+        return Ok(());
+    }
+
     let mut doc = if cargo_cfg_path.exists() {
         let text = fs::read_to_string(&cargo_cfg_path)
             .map_err(|e| format!("read {}: {e}", cargo_cfg_path.display()))?;
@@ -464,8 +492,6 @@ fn run_init(args: Vec<OsString>) -> Result<(), String> {
         Some(t) => t,
         None => return Err(format!("{} has non-table [env]", cargo_cfg_path.display())),
     };
-    let cfg_value = cfg_path.to_string_lossy().to_string();
-
     match env_tbl.get("SYMBAKER_CONFIG") {
         Some(existing) => {
             println!(

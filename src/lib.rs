@@ -165,6 +165,29 @@ fn enforce_inherited_prefix(source: PrefixSource) -> Result<(), syn::Error> {
     if !truthy_env("SYMBAKER_ENFORCE_INHERIT") {
         return Ok(());
     }
+
+    // If we can't tell what the top-level package is (e.g. rust-analyzer or
+    // ad-hoc builds that don't inject SYMBAKER_TOP_PACKAGE), don't hard-error.
+    // Strict inheritance only makes sense when we know which package should
+    // own the prefix; otherwise we just emit a single warning and continue.
+    if detect_top_level_package_name().is_none() {
+        if matches!(
+            source,
+            PrefixSource::Package | PrefixSource::Crate | PrefixSource::CrateFallbackAfterPriority
+        ) {
+            static DID_WARN: OnceLock<()> = OnceLock::new();
+            if DID_WARN.get().is_none() {
+                let _ = DID_WARN.set(());
+                let crate_name = std::env::var("CARGO_PKG_NAME").ok();
+                eprintln!(
+                    "warning: symbaker dependency {:?} fell back to a local prefix, but SYMBAKER_TOP_PACKAGE is unset. Skipping strict inheritance. Set SYMBAKER_TOP_PACKAGE or run `cargo symdump init` to re-enable this check.",
+                    crate_name
+                );
+            }
+        }
+        return Ok(());
+    }
+
     // Primary package is allowed to resolve with its own crate/package fallback.
     if std::env::var("CARGO_PRIMARY_PACKAGE").is_ok() {
         return Ok(());

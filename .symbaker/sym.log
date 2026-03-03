@@ -1,3 +1,10 @@
 # symbaker sym.log
-# source=\\?\E:\WebProjects\symbaker\tests\fixture_app\target\debug\fixture_app_test.nro
-# format: address type bind size name
+# format: source=<path> then one symbol per line
+
+# source=\\?\C:\Users\ciaru\AppData\Local\Temp\symdump_folder_mode_1772567921507017100_32788\alpha.nro
+custom__attr_named
+fixture_app__auto_named
+
+# source=\\?\C:\Users\ciaru\AppData\Local\Temp\symdump_folder_mode_1772567921507017100_32788\nested\beta.nro
+custom__attr_named
+fixture_app__auto_named
